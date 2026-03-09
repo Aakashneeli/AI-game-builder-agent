@@ -193,8 +193,12 @@ class Planner:
 
     def _resolve_mechanic(self, detected: str | None, answer: str | None, prompt: str) -> str:
         text = f"{answer or ''} {prompt}".lower()
-        has_collect = any(word in text for word in ("collect", "collecting", "gather", "pickup", "pick up", "grab"))
-        has_dodge = any(word in text for word in ("dodge", "dodging", "avoid", "avoiding", "evade", "escape"))
+        has_collect = any(
+            word in text for word in ("collect", "collecting", "gather", "pickup", "pick up", "grab", "steal", "retrieve")
+        )
+        has_dodge = any(
+            word in text for word in ("dodge", "dodging", "avoid", "avoiding", "evade", "escape", "outrun")
+        )
         has_survive = any(word in text for word in ("survive", "surviving", "survival", "endure", "last"))
         if (has_collect and has_dodge) or (has_collect and has_survive):
             return "hybrid"
@@ -441,6 +445,8 @@ class Planner:
         theme_text = theme.lower()
         if "space" in theme_text:
             return "star shard"
+        if "cyber" in theme_text:
+            return "data core"
         if "zombie" in theme_text:
             return "supply crate"
         if "ocean" in theme_text:

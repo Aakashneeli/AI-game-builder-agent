@@ -18,6 +18,8 @@ The implementation is split into small modules:
 
 - `agentic_game_builder/cli.py`: CLI entrypoint and phase orchestration
 - `agentic_game_builder/clarification.py`: detects missing implementation details and asks targeted questions about role, signature hook, pacing, tone, and arena details
+  - when a live LLM client is available, it can propose structured clarification questions first
+  - if that fails or returns unusable data, the repo falls back to local prompt heuristics
 - `agentic_game_builder/framework_selector.py`: explicitly chooses between vanilla JS and Phaser as an agent phase
 - `agentic_game_builder/planner.py`: converts prompt + answers into a bounded but more expressive game spec
 - `agentic_game_builder/generator.py`: generates `index.html`, `style.css`, and `game.js` with runtime modifiers for pressure, abilities, and flavor
@@ -36,6 +38,11 @@ Default order:
 3. OpenRouter fallback
 
 If all live providers fail, the CLI still falls back to the deterministic mock client so the generation pipeline can complete.
+
+The clarification step now uses the same philosophy:
+
+- live providers can generate prompt-specific clarification questions in structured JSON
+- local heuristics still act as a fallback for offline runs, tests, and provider failures
 
 Supported modes:
 

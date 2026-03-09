@@ -30,16 +30,16 @@ THEME_KEYWORDS = {
     "dungeon": {"dungeon", "cave", "maze", "castle"},
     "ocean": {"ocean", "sea", "submarine", "pirate", "fish"},
     "jungle": {"jungle", "forest", "temple"},
-    "cyber": {"cyber", "neon", "robot", "android"},
+    "cyber": {"cyber", "neon", "robot", "android", "heist", "vault", "drone"},
     "sports": {"soccer", "football", "basketball", "sports"},
     "traffic": {"traffic", "road", "lane", "highway", "car", "crossing"},
 }
 
 MECHANIC_KEYWORDS = {
-    "collect": {"collect", "collecting", "gather", "pickup", "pick up", "grab", "harvest"},
-    "dodge": {"dodge", "dodging", "avoid", "avoiding", "evade", "escape"},
-    "survive": {"survive", "surviving", "survival", "last", "endure"},
-    "hybrid": {"chase", "hunt", "rescue"},
+    "collect": {"collect", "collecting", "gather", "pickup", "pick up", "grab", "harvest", "steal", "retrieve"},
+    "dodge": {"dodge", "dodging", "avoid", "avoiding", "evade", "escape", "cross", "crossing", "outrun"},
+    "survive": {"survive", "surviving", "survival", "last", "endure", "hold out"},
+    "hybrid": {"chase", "hunt", "rescue", "heist", "infiltrate"},
 }
 
 PERSPECTIVE_KEYWORDS = {
@@ -68,14 +68,14 @@ SPECIAL_MECHANIC_KEYWORDS = {
     "shield": {"shield", "barrier", "guard", "protect"},
     "magnet": {"magnet", "vacuum", "tractor beam", "pull in"},
     "blink": {"blink", "teleport", "warp"},
-    "double jump": {"double jump", "air jump", "extra jump"},
+    "double jump": {"double jump", "double-jump", "air jump", "extra jump"},
 }
 
 PROGRESSION_KEYWORDS = {
-    "waves": {"wave", "waves", "rounds"},
+    "waves": {"wave", "waves", "rounds", "bursts", "surges", "spikes"},
     "finale": {"boss", "finale", "final phase", "showdown"},
-    "ramp": {"ramp", "escalate", "gets harder", "endless", "increasing", "survive longer"},
-    "steady": {"steady", "gentle", "calm", "casual"},
+    "ramp": {"ramp", "escalate", "escalating", "gets harder", "endless", "increasing", "survive longer", "intensifying", "building"},
+    "steady": {"steady", "gentle", "calm", "casual", "measured"},
 }
 
 
@@ -111,10 +111,12 @@ def infer_mechanic(lower_prompt: str) -> str | None:
     has_survive = any(keyword in lower_prompt for keyword in MECHANIC_KEYWORDS["survive"])
     if (has_collect and has_dodge) or (has_collect and has_survive):
         return "hybrid"
+    if any(word in lower_prompt for word in ("runner", "gauntlet", "obstacle course")) and has_dodge:
+        return "dodge"
     for mechanic, keywords in MECHANIC_KEYWORDS.items():
         if any(keyword in lower_prompt for keyword in keywords):
             return mechanic
-    if any(word in lower_prompt for word in ("shooter", "fight", "battle")):
+    if any(word in lower_prompt for word in ("shooter", "fight", "battle", "runner")):
         return "survive"
     return None
 
@@ -207,16 +209,16 @@ def infer_tone(lower_prompt: str) -> str | None:
 
 def infer_player_role(lower_prompt: str) -> str | None:
     patterns = (
-        r"play as\s+(?:a|an|the)?\s*([a-z][a-z\s-]+)",
-        r"you are\s+(?:a|an|the)?\s*([a-z][a-z\s-]+)",
-        r"control\s+(?:a|an|the)?\s*([a-z][a-z\s-]+)",
-        r"player is\s+(?:a|an|the)?\s*([a-z][a-z\s-]+)",
+        r"play as\s+(?:(?:a|an|the)\s+)?([a-z][a-z\s-]+)",
+        r"you are\s+(?:(?:a|an|the)\s+)?([a-z][a-z\s-]+)",
+        r"control\s+(?:(?:a|an|the)\s+)?([a-z][a-z\s-]+)",
+        r"player is\s+(?:(?:a|an|the)\s+)?([a-z][a-z\s-]+)",
     )
     for pattern in patterns:
         match = re.search(pattern, lower_prompt)
         if not match:
             continue
-        role = re.split(r"\b(?:who|that|in|on|with|and|while|where|to|for)\b", match.group(1), maxsplit=1)[0]
+        role = re.split(r"\b(?:who|that|in|on|with|and|while|where|to|for|through|across|inside|using)\b", match.group(1), maxsplit=1)[0]
         words = re.findall(r"[a-z]+", role)
         if words:
             return " ".join(words[:4])
@@ -235,6 +237,55 @@ def infer_progression_hint(lower_prompt: str) -> str | None:
         if any(keyword in lower_prompt for keyword in keywords):
             return label
     return None
+
+
+def extract_location_phrase(prompt: str) -> str | None:
+    lower_prompt = prompt.lower()
+    match = re.search(
+        r"(?:in|inside|through|across|around|within|into)\s+(?:a|an|the)?\s*([a-z][a-z\s-]+?)(?:\b(?:with|while|where|that|who|using|and)\b|[,.]|$)",
+        lower_prompt,
+    )
+    if not match:
+        return None
+    return clean_fragment(match.group(1))
+
+
+def extract_focus_terms(prompt: str, limit: int = 6) -> list[str]:
+    stopwords = {
+        "a",
+        "an",
+        "and",
+        "browser",
+        "build",
+        "create",
+        "for",
+        "game",
+        "idea",
+        "make",
+        "me",
+        "simple",
+        "small",
+        "the",
+        "that",
+        "this",
+        "where",
+        "with",
+        "you",
+    }
+    words = [word.lower() for word in re.findall(r"[A-Za-z]+", prompt)]
+    return [word for word in words if len(word) > 2 and word not in stopwords][:limit]
+
+
+def extract_object_after_keywords(prompt: str, keywords: tuple[str, ...]) -> str | None:
+    lower_prompt = prompt.lower()
+    joined = "|".join(re.escape(keyword) for keyword in keywords)
+    match = re.search(
+        rf"(?:{joined})\s+(?:a|an|the)?\s*([a-z][a-z\s-]+?)(?:\b(?:and|while|with|through|across|in|on|to|for)\b|[,.]|$)",
+        lower_prompt,
+    )
+    if not match:
+        return None
+    return clean_fragment(match.group(1))
 
 
 def slugify(value: str) -> str:
@@ -257,6 +308,13 @@ def prettify_theme(theme: str | None) -> str:
         "traffic": "city traffic",
     }
     return mapping.get(theme, theme)
+
+
+def clean_fragment(value: str) -> str:
+    cleaned = " ".join(value.strip().split())
+    if not cleaned:
+        return cleaned
+    return cleaned.strip(" .,!?:;")
 
 
 def _sentence_case(value: str) -> str:

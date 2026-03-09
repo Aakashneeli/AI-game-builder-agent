@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     print(llm_note)
     print("\n[Phase 1/5] Clarify")
 
-    clarification_manager = ClarificationManager()
+    clarification_manager = ClarificationManager(llm_client=llm_client)
     questions = clarification_manager.build_questions(prompt)
     try:
         provided_answers = _load_answers_file(args.answers_file)

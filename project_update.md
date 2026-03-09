@@ -6,6 +6,9 @@ This file tracks the current state of the project, what has been implemented, wh
 
 Most recent product and workflow updates:
 
+- moved clarification toward an LLM-first path so live providers can propose prompt-specific follow-up questions in structured JSON
+- kept the local prompt-analysis clarification path as a fallback for offline runs, tests, and provider failures
+- tightened heuristic prompt analysis so fallback clarification handles heist-style prompts and article-prefixed player roles more cleanly
 - simplified the generated runtime after the first personalization pass proved too fragile in practice
 - expanded the clarification phase beyond only missing basics so it can now ask about:
   - player identity
@@ -21,6 +24,7 @@ Most recent product and workflow updates:
   - simple ability hooks that are currently kept to the more stable mechanics:
     - dash
     - double jump
+- revalidated the generated runtime after simplification so fresh outputs no longer include the removed unstable helper paths
 - updated the CLI so extra `--answers-file` keys are still passed through to planning even when the capped question list does not explicitly ask for them
 - updated `README.md` and `AGENTS.md` to document the richer personalization flow
 
@@ -55,7 +59,7 @@ Implemented:
   - `index.html`
   - `style.css`
   - `game.js`
-- runtime personalization hooks for pacing, tone, and simple abilities
+- stable personalization hooks for tone, flavor text, static tuning, and simple abilities
 - Output folder management
 - Basic validation checks for generated files
 - Docker support
@@ -153,8 +157,8 @@ The generated game is a small 2D HTML5 canvas game with:
 - restart support
 - personalized HUD flavor text
 - tone-influenced palette changes
-- prompt-driven pacing changes
-- prompt-driven simple ability hooks
+- prompt-driven static tuning changes
+- prompt-driven simple ability hooks that currently stay within the stable runtime surface
 
 The generator now supports:
 
@@ -267,8 +271,22 @@ Observed results:
 
 - clarification asked for personalization fields instead of only the old generic minimum
 - the final plan preserved player identity, signature mechanic, pacing, tone, and arena detail
-- generated output included different runtime config for abilities and pressure curves
+- generated output preserved different runtime config for abilities and static tuning choices
 - the Phaser-selected prompt still completed cleanly through the full 5-phase pipeline
+
+### Runtime stability revalidation
+
+After simplifying the generated runtime, fresh mock CLI runs were repeated for:
+
+- the personalized cyber heist prompt
+- the personalized side-view jungle runner prompt
+
+Observed results:
+
+- both full CLI runs still completed successfully
+- generated output kept the richer planning fields and personalized copy
+- generated output no longer included the removed unstable helper paths for shield, blink, magnet, or per-frame pressure logic
+- the runtime surface is now closer to the earlier stable core loop
 
 ### Live provider fallback test
 
@@ -602,6 +620,7 @@ Fix:
 - kept richer clarification and planning
 - kept tone, HUD flavor, tuning, dash, and double-jump support
 - removed the more fragile per-frame pressure, shield, blink, and magnet runtime behaviors from generated output
+- reran compile checks, unit tests, and fresh mock smoke generations after the simplification
 
 Status:
 

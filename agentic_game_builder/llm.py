@@ -12,6 +12,9 @@ from typing import Any, Protocol
 
 
 class LLMClient(Protocol):
+    def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
+        """Return structured clarification questions for the user's prompt."""
+
     def create_plan_copy(self, prompt: str, normalized_spec: dict[str, Any]) -> dict[str, Any]:
         """Return lightweight copy fields derived from the normalized spec."""
 
@@ -27,6 +30,21 @@ class LLMRequestError(RuntimeError):
 class MultiLLMClient:
     clients: list[tuple[str, LLMClient]]
     last_success_label: str | None = None
+
+    def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
+        failures: list[str] = []
+        for label, client in self.clients:
+            try:
+                response = client.create_clarification_questions(prompt, max_questions=max_questions)
+                self.last_success_label = label
+                return response
+            except LLMRequestError as error:
+                failures.append(f"{label}: {error}")
+                continue
+        raise LLMRequestError(
+            "All configured live LLM providers failed. " + " | ".join(failures),
+            retriable=True,
+        )
 
     def create_plan_copy(self, prompt: str, normalized_spec: dict[str, Any]) -> dict[str, Any]:
         failures: list[str] = []
@@ -46,6 +64,9 @@ class MultiLLMClient:
 
 @dataclass(slots=True)
 class MockLLMClient:
+    def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
+        raise LLMRequestError("Mock LLM clarification is intentionally disabled so the heuristic fallback can run.")
+
     def create_plan_copy(self, prompt: str, normalized_spec: dict[str, Any]) -> dict[str, Any]:
         theme = normalized_spec.get("theme", "Arcade").title()
         mechanic = normalized_spec.get("core_mechanic", "arcade")
@@ -89,6 +110,37 @@ class OpenAICompatibleLLMClient:
     base_url: str
     referer: str | None = None
     title: str | None = None
+
+    def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
+        system_prompt = textwrap.dedent(
+            """
+            You create targeted clarification questions for a browser game generator.
+            Return valid JSON with keys:
+            - questions: array of objects with keys key, prompt, reason
+            - assumptions: short array of strings
+            Ask only the highest-value questions still missing from the user's prompt.
+            Make each question specific to the prompt's setting and likely gameplay.
+            Use only these keys:
+            theme, objective, perspective, controls, lose_condition, player_identity,
+            signature_mechanic, progression_style, visual_tone, arena_detail.
+            If the prompt is already specific enough, return an empty questions array.
+            """
+        ).strip()
+        user_prompt = json.dumps(
+            {
+                "prompt": prompt,
+                "max_questions": max_questions,
+            },
+            indent=2,
+        )
+        raw = self._chat_completion(system_prompt, user_prompt)
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise LLMRequestError("LLM returned invalid JSON for clarification generation.") from error
+        payload["questions"] = list(payload.get("questions", []))
+        payload["assumptions"] = list(payload.get("assumptions", []))
+        return payload
 
     def create_plan_copy(self, prompt: str, normalized_spec: dict[str, Any]) -> dict[str, Any]:
         system_prompt = textwrap.dedent(

@@ -45,6 +45,47 @@ class ClarificationManagerTests(unittest.TestCase):
 
         self.assertFalse(any(question.key == "lose_condition" for question in questions))
 
+    def test_llm_selected_questions_are_used_when_valid(self) -> None:
+        class ClarifyingLLMClient:
+            def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, object]:
+                return {
+                    "questions": [
+                        {
+                            "key": "objective",
+                            "prompt": "Should the heist focus on stealing data cores, hitting marked vault nodes, or escaping with loot?",
+                            "reason": "The main loop is still ambiguous.",
+                        },
+                        {
+                            "key": "theme",
+                            "prompt": "This redundant question should be filtered.",
+                            "reason": "Filtered because theme is already obvious.",
+                        },
+                    ]
+                }
+
+            def create_plan_copy(self, prompt: str, normalized_spec: dict[str, str]) -> dict[str, str]:
+                return MockLLMClient().create_plan_copy(prompt, normalized_spec)
+
+        manager = ClarificationManager(llm_client=ClarifyingLLMClient())
+        questions = manager.build_questions("Make a cyber neon vault game.")
+
+        self.assertEqual([question.key for question in questions], ["objective"])
+        self.assertIn("vault", questions[0].prompt.lower())
+
+    def test_llm_clarification_falls_back_to_heuristics_on_failure(self) -> None:
+        class FailingLLMClient:
+            def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, object]:
+                raise LLMRequestError("provider failed")
+
+            def create_plan_copy(self, prompt: str, normalized_spec: dict[str, str]) -> dict[str, str]:
+                return MockLLMClient().create_plan_copy(prompt, normalized_spec)
+
+        manager = ClarificationManager(llm_client=FailingLLMClient())
+        questions = manager.build_questions("Make me a simple space survival game.")
+
+        self.assertTrue(any(question.key == "perspective" for question in questions))
+        self.assertTrue(any("pilot" in question.prompt.lower() for question in questions))
+
 
 class FrameworkSelectorTests(unittest.TestCase):
     def test_selects_phaser_for_side_view_runner_ideas(self) -> None:
@@ -136,6 +177,21 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(spec.arena_detail, "a neon archive vault")
         self.assertEqual(spec.hazard_pattern, "burst")
 
+    def test_planner_treats_heist_language_as_collection_or_hybrid(self) -> None:
+        planner = Planner(llm_client=MockLLMClient())
+        spec = planner.build_spec(
+            "Make a cyber heist game about stealing data while dodging drones.",
+            {
+                "perspective": "top-down",
+                "controls": "WASD",
+                "lose_condition": "Lose if a security drone tags the player.",
+            },
+        )
+
+        self.assertEqual(spec.core_mechanic, "hybrid")
+        self.assertEqual(spec.play_variant, "collector_escape")
+        self.assertEqual(spec.collectible_entity, "data core")
+
     def test_cli_falls_back_to_mock_when_live_llm_fails(self) -> None:
         class FailingLLMClient:
             def create_plan_copy(self, prompt: str, normalized_spec: dict[str, str]) -> dict[str, str]:
@@ -160,6 +216,9 @@ class PlannerTests(unittest.TestCase):
 
     def test_multi_llm_client_uses_second_provider_after_first_fails(self) -> None:
         class FailingLLMClient:
+            def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, object]:
+                raise LLMRequestError("HTTP 429 from primary provider", status_code=429, retriable=True)
+
             def create_plan_copy(self, prompt: str, normalized_spec: dict[str, str]) -> dict[str, str]:
                 raise LLMRequestError("HTTP 429 from primary provider", status_code=429, retriable=True)
 
