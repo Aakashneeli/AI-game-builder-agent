@@ -21,6 +21,7 @@ class Planner:
 
         return GameSpec(
             title=llm_copy["title"],
+            source_prompt=prompt,
             theme=merged["theme"],
             concept_summary=llm_copy["concept_summary"],
             framework=framework,

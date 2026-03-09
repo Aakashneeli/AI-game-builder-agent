@@ -84,9 +84,11 @@ def main(argv: list[str] | None = None) -> int:
     print(plan_renderer.render_plan(spec))
 
     print("\n[Phase 4/5] Generate")
-    generator = CodeGenerator()
-    artifacts = generator.generate(spec)
     validator = Validator()
+    generator = CodeGenerator(llm_client=llm_client, validator=validator)
+    artifacts = generator.generate(spec)
+    for message in generator.last_messages:
+        print(f"- {message}")
     artifact_validation = validator.validate_artifacts(artifacts)
     for message in artifact_validation.messages:
         print(f"- {message}")

@@ -6,6 +6,9 @@ This file tracks the current state of the project, what has been implemented, wh
 
 Most recent product and workflow updates:
 
+- moved game-code generation toward an LLM-first path so live providers can generate `index.html`, `style.css`, and `game.js` directly from the prompt plus the structured game spec
+- added validation-aware retry for live code generation so one bad bundle can be repaired once before falling back
+- kept the built-in generator as the offline and provider-failure fallback so mock-mode and local tests remain reproducible
 - moved clarification toward an LLM-first path so live providers can propose prompt-specific follow-up questions in structured JSON
 - kept the local prompt-analysis clarification path as a fallback for offline runs, tests, and provider failures
 - tightened heuristic prompt analysis so fallback clarification handles heist-style prompts and article-prefixed player roles more cleanly
@@ -55,6 +58,7 @@ Implemented:
   - validate
 - Structured game-spec planning flow
 - richer clarification and personalization capture
+- live LLM-first code generation with validation-aware fallback
 - Browser game output generation for:
   - `index.html`
   - `style.css`
@@ -146,6 +150,16 @@ A generator was implemented to create:
 - `index.html`
 - `style.css`
 - `game.js`
+
+Current behavior:
+
+- live providers can generate the full bundle directly from:
+  - the original prompt
+  - the structured game spec
+  - product and validation constraints
+- generated bundles are checked immediately
+- if a live bundle misses required hooks, one structured repair pass is attempted
+- if live generation still fails, the repo falls back to the built-in deterministic generator
 
 The generated game is a small 2D HTML5 canvas game with:
 

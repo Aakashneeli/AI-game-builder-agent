@@ -15,6 +15,15 @@ class LLMClient(Protocol):
     def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
         """Return structured clarification questions for the user's prompt."""
 
+    def create_game_bundle(
+        self,
+        prompt: str,
+        game_spec: dict[str, Any],
+        generation_context: dict[str, Any],
+        repair_feedback: list[str] | None = None,
+    ) -> dict[str, str]:
+        """Return complete index.html, style.css, and game.js contents."""
+
     def create_plan_copy(self, prompt: str, normalized_spec: dict[str, Any]) -> dict[str, Any]:
         """Return lightweight copy fields derived from the normalized spec."""
 
@@ -46,6 +55,32 @@ class MultiLLMClient:
             retriable=True,
         )
 
+    def create_game_bundle(
+        self,
+        prompt: str,
+        game_spec: dict[str, Any],
+        generation_context: dict[str, Any],
+        repair_feedback: list[str] | None = None,
+    ) -> dict[str, str]:
+        failures: list[str] = []
+        for label, client in self.clients:
+            try:
+                response = client.create_game_bundle(
+                    prompt,
+                    game_spec,
+                    generation_context,
+                    repair_feedback=repair_feedback,
+                )
+                self.last_success_label = label
+                return response
+            except LLMRequestError as error:
+                failures.append(f"{label}: {error}")
+                continue
+        raise LLMRequestError(
+            "All configured live LLM providers failed. " + " | ".join(failures),
+            retriable=True,
+        )
+
     def create_plan_copy(self, prompt: str, normalized_spec: dict[str, Any]) -> dict[str, Any]:
         failures: list[str] = []
         for label, client in self.clients:
@@ -66,6 +101,15 @@ class MultiLLMClient:
 class MockLLMClient:
     def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
         raise LLMRequestError("Mock LLM clarification is intentionally disabled so the heuristic fallback can run.")
+
+    def create_game_bundle(
+        self,
+        prompt: str,
+        game_spec: dict[str, Any],
+        generation_context: dict[str, Any],
+        repair_feedback: list[str] | None = None,
+    ) -> dict[str, str]:
+        raise LLMRequestError("Mock LLM code generation is intentionally disabled so the template fallback can run.")
 
     def create_plan_copy(self, prompt: str, normalized_spec: dict[str, Any]) -> dict[str, Any]:
         theme = normalized_spec.get("theme", "Arcade").title()
@@ -133,14 +177,72 @@ class OpenAICompatibleLLMClient:
             },
             indent=2,
         )
-        raw = self._chat_completion(system_prompt, user_prompt)
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as error:
-            raise LLMRequestError("LLM returned invalid JSON for clarification generation.") from error
+        payload = self._chat_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            invalid_json_message="LLM returned invalid JSON for clarification generation.",
+        )
         payload["questions"] = list(payload.get("questions", []))
         payload["assumptions"] = list(payload.get("assumptions", []))
         return payload
+
+    def create_game_bundle(
+        self,
+        prompt: str,
+        game_spec: dict[str, Any],
+        generation_context: dict[str, Any],
+        repair_feedback: list[str] | None = None,
+    ) -> dict[str, str]:
+        system_prompt = textwrap.dedent(
+            """
+            You generate the final browser game bundle for Agentic Game Builder MVP.
+            Return valid JSON with exactly these keys:
+            - index_html
+            - style_css
+            - game_js
+
+            Product constraints:
+            - generate a small 2D browser game only
+            - output must run locally with no backend services
+            - write complete contents for index.html, style.css, and game.js
+            - do not include TODOs, placeholders, markdown fences, or commentary
+            - preserve the user's theme, player fantasy, arena, pacing, and signature mechanic
+            - keep the implementation inspectable and bounded for assignment review
+
+            Technical requirements:
+            - index_html must reference style.css and game.js
+            - game_js must include restart capability via a resetGame function
+            - vanilla_js builds must use requestAnimationFrame
+            - phaser builds must bootstrap with new Phaser.Game
+            - use Phaser only when framework is phaser
+            - if framework is phaser, load Phaser 3.80.1 from jsDelivr in index_html
+            - support the controls, win condition, lose condition, and score/timer model from the spec
+
+            This is not a generic reskin task. Use the original prompt and structured spec to make the game feel specific.
+            """
+        ).strip()
+        user_prompt = json.dumps(
+            {
+                "original_prompt": prompt,
+                "game_spec": game_spec,
+                "generation_context": generation_context,
+                "repair_feedback": repair_feedback or [],
+            },
+            indent=2,
+        )
+        payload = self._chat_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            invalid_json_message="LLM returned invalid JSON for game bundle generation.",
+        )
+        try:
+            return {
+                "index.html": str(payload["index_html"]),
+                "style.css": str(payload["style_css"]),
+                "game.js": str(payload["game_js"]),
+            }
+        except KeyError as error:
+            raise LLMRequestError("LLM game bundle response was missing one or more required file keys.") from error
 
     def create_plan_copy(self, prompt: str, normalized_spec: dict[str, Any]) -> dict[str, Any]:
         system_prompt = textwrap.dedent(
@@ -158,13 +260,38 @@ class OpenAICompatibleLLMClient:
             },
             indent=2,
         )
+        payload = self._chat_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            invalid_json_message="LLM returned invalid JSON for plan copy generation.",
+        )
+        payload["generation_notes"] = list(payload.get("generation_notes", []))
+        return payload
+
+    def _chat_json(self, system_prompt: str, user_prompt: str, invalid_json_message: str) -> dict[str, Any]:
         raw = self._chat_completion(system_prompt, user_prompt)
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as error:
-            raise LLMRequestError("LLM returned invalid JSON for plan copy generation.") from error
-        payload["generation_notes"] = list(payload.get("generation_notes", []))
+            try:
+                payload = json.loads(self._recover_json_text(raw))
+            except json.JSONDecodeError:
+                raise LLMRequestError(invalid_json_message) from error
+        if not isinstance(payload, dict):
+            raise LLMRequestError(invalid_json_message)
         return payload
+
+    def _recover_json_text(self, raw: str) -> str:
+        stripped = raw.strip()
+        if stripped.startswith("```"):
+            lines = stripped.splitlines()
+            if len(lines) >= 3:
+                stripped = "\n".join(lines[1:-1]).strip()
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return stripped[start : end + 1]
+        return stripped
 
     def _chat_completion(self, system_prompt: str, user_prompt: str) -> str:
         max_attempts = max(1, int(os.getenv("AIGB_LLM_MAX_ATTEMPTS", "2")))

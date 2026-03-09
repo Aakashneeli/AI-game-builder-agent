@@ -4,7 +4,9 @@ import json
 from string import Template
 from typing import Any
 
+from .llm import LLMRequestError, MockLLMClient, MultiLLMClient
 from .models import GameSpec
+from .validator import Validator
 
 
 VANILLA_HTML_TEMPLATE = Template(
@@ -1211,7 +1213,71 @@ resetGame();
 
 
 class CodeGenerator:
+    def __init__(self, llm_client: Any | None = None, validator: Validator | None = None) -> None:
+        self.llm_client = llm_client
+        self.validator = validator or Validator()
+        self.last_messages: list[str] = []
+
     def generate(self, spec: GameSpec) -> dict[str, str]:
+        self.last_messages = []
+        llm_artifacts = self._generate_with_llm(spec)
+        if llm_artifacts is not None:
+            return llm_artifacts
+        self.last_messages.append("Using built-in template generator.")
+        return self._generate_with_template(spec)
+
+    def _generate_with_llm(self, spec: GameSpec) -> dict[str, str] | None:
+        if self.llm_client is None:
+            return None
+        try:
+            artifacts = self.llm_client.create_game_bundle(
+                prompt=spec.source_prompt,
+                game_spec=spec.to_dict(),
+                generation_context=self._build_generation_context(spec),
+            )
+            validation = self.validator.validate_artifacts(artifacts)
+            if validation.passed:
+                self._record_llm_success("Live LLM code generation succeeded.")
+                return artifacts
+
+            repaired_artifacts = self.llm_client.create_game_bundle(
+                prompt=spec.source_prompt,
+                game_spec=spec.to_dict(),
+                generation_context=self._build_generation_context(spec),
+                repair_feedback=validation.messages,
+            )
+            repaired_validation = self.validator.validate_artifacts(repaired_artifacts)
+            if repaired_validation.passed:
+                self._record_llm_success("Live LLM code generation succeeded after one repair pass.")
+                return repaired_artifacts
+
+            self.last_messages.extend(
+                [
+                    "Live LLM code generation returned invalid artifacts.",
+                    *[f"Validation issue: {message}" for message in repaired_validation.messages],
+                    "Falling back to the built-in template generator.",
+                ]
+            )
+            return None
+        except (AttributeError, TypeError, ValueError, LLMRequestError) as error:
+            if not isinstance(self.llm_client, MockLLMClient):
+                self.last_messages.extend(
+                    [
+                        f"Live LLM code generation failed: {error}",
+                        "Falling back to the built-in template generator.",
+                    ]
+                )
+            return None
+
+    def _record_llm_success(self, default_message: str) -> None:
+        if isinstance(self.llm_client, MultiLLMClient) and self.llm_client.last_success_label:
+            self.last_messages.append(
+                f"{default_message} Provider: {self.llm_client.last_success_label}."
+            )
+            return
+        self.last_messages.append(default_message)
+
+    def _generate_with_template(self, spec: GameSpec) -> dict[str, str]:
         config = self._build_runtime_config(spec)
         instruction_text = self._build_instruction_text(spec)
         flavor_text = self._build_flavor_text(spec)
@@ -1223,6 +1289,37 @@ class CodeGenerator:
             "index.html": html,
             "style.css": css,
             "game.js": js,
+        }
+
+    def _build_generation_context(self, spec: GameSpec) -> dict[str, Any]:
+        return {
+            "product_name": "Agentic Game Builder MVP",
+            "workflow_phases": ["clarify", "select framework", "plan", "generate", "validate"],
+            "mvp_constraints": [
+                "small 2D browser game only",
+                "single local bundle with index.html, style.css, and game.js",
+                "no backend services",
+                "no third-party runtime dependencies except Phaser when the selected framework is phaser",
+                "generated output must be understandable for assignment review",
+            ],
+            "quality_requirements": [
+                "make the game feel specific to the prompt instead of a generic reskin",
+                "preserve the player's role, arena, objective, and signature mechanic",
+                "include restart support",
+                "implement win and lose conditions from the plan",
+            ],
+            "validation_requirements": [
+                'index.html must reference style.css and game.js',
+                "game.js must contain requestAnimationFrame or new Phaser.Game",
+                "game.js must define resetGame",
+            ],
+            "ui_copy": {
+                "summary": spec.concept_summary,
+                "objective": spec.objective,
+                "instruction_text": self._build_instruction_text(spec),
+                "flavor_text": self._build_flavor_text(spec),
+            },
+            "runtime_reference": self._build_runtime_config(spec),
         }
 
     def _build_html(self, spec: GameSpec, instruction_text: str, flavor_text: str) -> str:

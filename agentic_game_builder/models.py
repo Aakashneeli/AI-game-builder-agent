@@ -50,6 +50,7 @@ class GameSpec:
     lose_condition: str
     rendering_approach: str
     file_structure: list[str]
+    source_prompt: str = ""
     generation_notes: list[str] = field(default_factory=list)
     arena_width: int = 800
     arena_height: int = 600
@@ -62,6 +63,7 @@ class GameSpec:
     def to_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
+            "source_prompt": self.source_prompt,
             "theme": self.theme,
             "concept_summary": self.concept_summary,
             "framework": self.framework,

@@ -245,6 +245,68 @@ class PlannerTests(unittest.TestCase):
 
 
 class GenerationPipelineTests(unittest.TestCase):
+    def test_generation_uses_llm_bundle_when_available(self) -> None:
+        planner = Planner(llm_client=MockLLMClient())
+        spec = planner.build_spec(
+            "Make a simple space survival game.",
+            {
+                "perspective": "top-down",
+                "controls": "arrow keys",
+                "lose_condition": "Lose if an asteroid hits the player.",
+            },
+        )
+
+        class BundleLLMClient:
+            def create_game_bundle(
+                self,
+                prompt: str,
+                game_spec: dict[str, object],
+                generation_context: dict[str, object],
+                repair_feedback: list[str] | None = None,
+            ) -> dict[str, str]:
+                self.repair_feedback = repair_feedback or []
+                return {
+                    "index.html": '<!DOCTYPE html><html><head><link rel="stylesheet" href="style.css"></head><body><button id="restartButton"></button><canvas id="gameCanvas"></canvas><script src="game.js"></script></body></html>',
+                    "style.css": "body { margin: 0; }",
+                    "game.js": 'function resetGame() {} function frame() { window.requestAnimationFrame(frame); } window.requestAnimationFrame(frame);',
+                }
+
+        generator = CodeGenerator(llm_client=BundleLLMClient(), validator=Validator())
+        artifacts = generator.generate(spec)
+
+        self.assertIn("requestAnimationFrame", artifacts["game.js"])
+        self.assertTrue(any("Live LLM code generation succeeded" in message for message in generator.last_messages))
+
+    def test_generation_falls_back_to_template_when_llm_bundle_is_invalid(self) -> None:
+        planner = Planner(llm_client=MockLLMClient())
+        spec = planner.build_spec(
+            "Make a traffic dodging game where the player crosses busy lanes.",
+            {
+                "controls": "arrow keys",
+                "lose_condition": "Lose if a car hits the player.",
+            },
+        )
+
+        class InvalidBundleLLMClient:
+            def create_game_bundle(
+                self,
+                prompt: str,
+                game_spec: dict[str, object],
+                generation_context: dict[str, object],
+                repair_feedback: list[str] | None = None,
+            ) -> dict[str, str]:
+                return {
+                    "index.html": "<html></html>",
+                    "style.css": "body {}",
+                    "game.js": "console.log('broken');",
+                }
+
+        generator = CodeGenerator(llm_client=InvalidBundleLLMClient(), validator=Validator())
+        artifacts = generator.generate(spec)
+
+        self.assertIn('"variant": "lane_dodger"', artifacts["game.js"])
+        self.assertTrue(any("Falling back" in message for message in generator.last_messages))
+
     def test_generation_writes_required_files_and_passes_validation(self) -> None:
         planner = Planner(llm_client=MockLLMClient())
         spec = planner.build_spec(

@@ -22,7 +22,7 @@ The implementation is split into small modules:
   - if that fails or returns unusable data, the repo falls back to local prompt heuristics
 - `agentic_game_builder/framework_selector.py`: explicitly chooses between vanilla JS and Phaser as an agent phase
 - `agentic_game_builder/planner.py`: converts prompt + answers into a bounded but more expressive game spec
-- `agentic_game_builder/generator.py`: generates `index.html`, `style.css`, and `game.js` with runtime modifiers for pressure, abilities, and flavor
+- `agentic_game_builder/generator.py`: asks a live LLM for a full `index.html`, `style.css`, and `game.js` bundle first, then falls back to the built-in generator if live code generation fails validation
 - `agentic_game_builder/validator.py`: validates generated content and written files
 - `agentic_game_builder/output.py`: manages output directory creation and file writes
 - `agentic_game_builder/llm.py`: provider-agnostic LLM layer with `mock` and `openai_compatible` modes
@@ -43,6 +43,12 @@ The clarification step now uses the same philosophy:
 
 - live providers can generate prompt-specific clarification questions in structured JSON
 - local heuristics still act as a fallback for offline runs, tests, and provider failures
+
+The generation step now follows that pattern too:
+
+- live providers can generate the full browser game bundle from the original prompt plus the structured game spec
+- generated bundles are validated and get one repair retry if they miss required runtime hooks
+- offline and failure cases still fall back to the built-in deterministic generator
 
 Supported modes:
 
