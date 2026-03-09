@@ -18,6 +18,10 @@ class PromptSignals:
     score_target: int | None
     lose_condition: str | None
     unsupported_features: list[str]
+    tone: str | None
+    player_role: str | None
+    special_mechanic: str | None
+    progression_hint: str | None
 
 
 THEME_KEYWORDS = {
@@ -28,12 +32,13 @@ THEME_KEYWORDS = {
     "jungle": {"jungle", "forest", "temple"},
     "cyber": {"cyber", "neon", "robot", "android"},
     "sports": {"soccer", "football", "basketball", "sports"},
+    "traffic": {"traffic", "road", "lane", "highway", "car", "crossing"},
 }
 
 MECHANIC_KEYWORDS = {
-    "collect": {"collect", "gather", "pickup", "pick up", "grab", "harvest"},
-    "dodge": {"dodge", "avoid", "evade", "escape"},
-    "survive": {"survive", "survival", "last", "endure"},
+    "collect": {"collect", "collecting", "gather", "pickup", "pick up", "grab", "harvest"},
+    "dodge": {"dodge", "dodging", "avoid", "avoiding", "evade", "escape"},
+    "survive": {"survive", "surviving", "survival", "last", "endure"},
     "hybrid": {"chase", "hunt", "rescue"},
 }
 
@@ -50,6 +55,29 @@ UNSUPPORTED_KEYWORDS = {
     "assets": {"voice acting", "cutscene", "cinematic", "realistic graphics"},
 }
 
+TONE_KEYWORDS = {
+    "cozy": {"cozy", "relaxing", "gentle", "calm", "peaceful", "wholesome"},
+    "tense": {"tense", "intense", "dangerous", "survival", "grim", "stressful"},
+    "mysterious": {"mystery", "mysterious", "spooky", "haunted", "ancient", "eerie"},
+    "playful": {"playful", "cute", "lighthearted", "bouncy", "colorful", "arcade"},
+    "chaotic": {"chaotic", "wild", "mayhem", "hectic", "fast-paced", "fast paced"},
+}
+
+SPECIAL_MECHANIC_KEYWORDS = {
+    "dash": {"dash", "boost", "burst", "sprint"},
+    "shield": {"shield", "barrier", "guard", "protect"},
+    "magnet": {"magnet", "vacuum", "tractor beam", "pull in"},
+    "blink": {"blink", "teleport", "warp"},
+    "double jump": {"double jump", "air jump", "extra jump"},
+}
+
+PROGRESSION_KEYWORDS = {
+    "waves": {"wave", "waves", "rounds"},
+    "finale": {"boss", "finale", "final phase", "showdown"},
+    "ramp": {"ramp", "escalate", "gets harder", "endless", "increasing", "survive longer"},
+    "steady": {"steady", "gentle", "calm", "casual"},
+}
+
 
 def analyze_prompt(prompt: str) -> PromptSignals:
     lower_prompt = prompt.lower()
@@ -63,6 +91,10 @@ def analyze_prompt(prompt: str) -> PromptSignals:
         score_target=parse_score_target(lower_prompt),
         lose_condition=infer_lose_condition(lower_prompt),
         unsupported_features=infer_unsupported_features(lower_prompt),
+        tone=infer_tone(lower_prompt),
+        player_role=infer_player_role(lower_prompt),
+        special_mechanic=infer_special_mechanic(lower_prompt),
+        progression_hint=infer_progression_hint(lower_prompt),
     )
 
 
@@ -145,6 +177,10 @@ def parse_score_target(lower_prompt: str) -> int | None:
 
 
 def infer_lose_condition(lower_prompt: str) -> str | None:
+    explicit_failure = re.search(r"(?:lose|fail|fails|game over)\s+if\s+([^.!,;]+)", lower_prompt)
+    if explicit_failure:
+        condition = _sentence_case(explicit_failure.group(1).strip())
+        return f"Lose if {condition}."
     if "one hit" in lower_prompt or "single hit" in lower_prompt:
         return "Lose immediately on contact with a hazard."
     if any(word in lower_prompt for word in ("timer runs out", "time limit", "before time runs out")):
@@ -160,6 +196,45 @@ def infer_unsupported_features(lower_prompt: str) -> list[str]:
         if any(keyword in lower_prompt for keyword in keywords):
             found.append(label)
     return found
+
+
+def infer_tone(lower_prompt: str) -> str | None:
+    for tone, keywords in TONE_KEYWORDS.items():
+        if any(keyword in lower_prompt for keyword in keywords):
+            return tone
+    return None
+
+
+def infer_player_role(lower_prompt: str) -> str | None:
+    patterns = (
+        r"play as\s+(?:a|an|the)?\s*([a-z][a-z\s-]+)",
+        r"you are\s+(?:a|an|the)?\s*([a-z][a-z\s-]+)",
+        r"control\s+(?:a|an|the)?\s*([a-z][a-z\s-]+)",
+        r"player is\s+(?:a|an|the)?\s*([a-z][a-z\s-]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, lower_prompt)
+        if not match:
+            continue
+        role = re.split(r"\b(?:who|that|in|on|with|and|while|where|to|for)\b", match.group(1), maxsplit=1)[0]
+        words = re.findall(r"[a-z]+", role)
+        if words:
+            return " ".join(words[:4])
+    return None
+
+
+def infer_special_mechanic(lower_prompt: str) -> str | None:
+    for label, keywords in SPECIAL_MECHANIC_KEYWORDS.items():
+        if any(keyword in lower_prompt for keyword in keywords):
+            return label
+    return None
+
+
+def infer_progression_hint(lower_prompt: str) -> str | None:
+    for label, keywords in PROGRESSION_KEYWORDS.items():
+        if any(keyword in lower_prompt for keyword in keywords):
+            return label
+    return None
 
 
 def slugify(value: str) -> str:
@@ -179,5 +254,13 @@ def prettify_theme(theme: str | None) -> str:
         "jungle": "jungle",
         "cyber": "cyber arena",
         "sports": "sports arena",
+        "traffic": "city traffic",
     }
     return mapping.get(theme, theme)
+
+
+def _sentence_case(value: str) -> str:
+    cleaned = " ".join(value.split())
+    if not cleaned:
+        return cleaned
+    return cleaned[0].lower() + cleaned[1:]

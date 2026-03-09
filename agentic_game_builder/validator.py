@@ -19,8 +19,8 @@ class Validator:
             messages.append("index.html does not reference style.css.")
         if 'src="game.js"' not in html:
             messages.append("index.html does not reference game.js.")
-        if "requestAnimationFrame" not in js:
-            messages.append("game.js does not contain a requestAnimationFrame loop.")
+        if "requestAnimationFrame" not in js and "new Phaser.Game" not in js:
+            messages.append("game.js does not contain a vanilla loop or Phaser bootstrap.")
         if "resetGame" not in js:
             messages.append("game.js does not include restart capability.")
         return ValidationResult(passed=not messages, messages=messages or ["Generated artifacts passed content validation."])
