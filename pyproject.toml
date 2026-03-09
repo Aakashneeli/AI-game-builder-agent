@@ -1,0 +1,14 @@
+[project]
+name = "agentic-game-builder"
+version = "0.1.0"
+description = "CLI MVP that clarifies a game prompt, plans the implementation, and generates a playable browser game."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "OpenAI Codex" }
+]
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
