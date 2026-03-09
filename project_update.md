@@ -6,6 +6,7 @@ This file tracks the current state of the project, what has been implemented, wh
 
 Most recent product and workflow updates:
 
+- simplified the generated runtime after the first personalization pass proved too fragile in practice
 - expanded the clarification phase beyond only missing basics so it can now ask about:
   - player identity
   - signature mechanic
@@ -16,9 +17,10 @@ Most recent product and workflow updates:
 - updated generation to use personalization fields for:
   - HUD flavor copy
   - tone-aware palette changes
-  - pressure curves
-  - hazard-pattern changes
-  - simple ability hooks such as dash, shield, blink, magnet pull, and double jump
+  - static pressure tuning
+  - simple ability hooks that are currently kept to the more stable mechanics:
+    - dash
+    - double jump
 - updated the CLI so extra `--answers-file` keys are still passed through to planning even when the capped question list does not explicitly ask for them
 - updated `README.md` and `AGENTS.md` to document the richer personalization flow
 
@@ -26,6 +28,7 @@ Recent behaviors reduced or replaced:
 
 - reduced the old tendency to turn many prompts into the same reskinned runtime
 - replaced the narrower “ask only the missing minimum” clarification behavior with a more expressive but still bounded personalization pass
+- reduced the first version of the runtime-personalization layer after it introduced avoidable gameplay instability
 - kept the explicit 5-phase flow:
   - clarify
   - select framework
@@ -581,6 +584,24 @@ Fix:
 
 - changed the CLI to seed planning answers from the entire answers file first
 - interactive clarification still overrides or fills missing values, but unprompted answers-file keys now survive into planning
+
+Status:
+
+- fixed
+
+### 15. Personalized runtime became too fragile
+
+Issue:
+
+- the first implementation of personalized gameplay added too much dynamic runtime logic
+- generated games became less reliable and felt buggy despite having richer plans
+
+Fix:
+
+- simplified the generated runtime back toward the stable core loop
+- kept richer clarification and planning
+- kept tone, HUD flavor, tuning, dash, and double-jump support
+- removed the more fragile per-frame pressure, shield, blink, and magnet runtime behaviors from generated output
 
 Status:
 

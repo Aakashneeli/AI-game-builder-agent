@@ -263,6 +263,8 @@ class GenerationPipelineTests(unittest.TestCase):
         self.assertIn('"hazardPattern": "burst"', artifacts["game.js"])
         self.assertIn("Press Shift or E to dash", artifacts["index.html"])
         self.assertIn("You play as freelance courier", artifacts["index.html"])
+        self.assertNotIn("pressureFactor(", artifacts["game.js"])
+        self.assertNotIn("shieldActive(", artifacts["game.js"])
 
     def test_generation_uses_phaser_runtime_when_framework_selected(self) -> None:
         planner = Planner(llm_client=MockLLMClient())

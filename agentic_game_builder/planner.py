@@ -352,16 +352,14 @@ class Planner:
         movement_model: str,
     ) -> str | None:
         text = f"{signature_mechanic} {prompt} {' '.join(answers.values())}".lower()
-        if "shield" in text or "barrier" in text:
-            return "shield"
-        if "magnet" in text or "tractor beam" in text or "vacuum" in text:
-            return "magnet"
-        if "blink" in text or "teleport" in text or "warp" in text:
-            return "blink"
         if "double jump" in text or ("extra jump" in text and movement_model == "side_runner"):
-            return "double_jump"
-        if "dash" in text or "boost" in text or "burst" in text or "sprint" in text:
-            return "dash"
+            return "double_jump" if movement_model == "side_runner" else None
+        if any(word in text for word in ("dash", "boost", "burst", "sprint", "blink", "teleport", "warp")):
+            if movement_model in {"top_down_free", "lane_runner"}:
+                return "dash"
+            return None
+        if any(word in text for word in ("shield", "barrier", "magnet", "tractor beam", "vacuum")):
+            return None
         return None
 
     def _resolve_pressure_curve(self, progression_style: str, play_variant: str, difficulty: str) -> str:
@@ -502,14 +500,8 @@ class Planner:
         progression_style: str,
     ) -> str:
         ability_clause = ""
-        if player_ability == "shield":
-            ability_clause = " Use the shield windows to absorb one mistake."
-        elif player_ability == "dash":
+        if player_ability == "dash":
             ability_clause = " Use the dash to cut through tight gaps."
-        elif player_ability == "magnet":
-            ability_clause = " Use the magnet pull to keep your route efficient."
-        elif player_ability == "blink":
-            ability_clause = " Use the blink to skip dangerous angles."
         elif player_ability == "double_jump":
             ability_clause = " Use the second jump to recover from risky jumps."
 

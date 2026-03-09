@@ -221,7 +221,7 @@ const state = {
   keys: new Set(),
   mouse: { x: config.width / 2, y: config.height / 2, active: false },
   lastMove: { x: 1, y: 0 },
-  ability: { activeUntil: 0, cooldownUntil: 0 },
+  dashCooldownUntil: 0,
   player: null,
   hazards: [],
   collectibles: [],
@@ -362,7 +362,7 @@ function resetGame() {
   state.lastFrame = 0;
   state.endMessage = "";
   state.lastMove = { x: 1, y: 0 };
-  state.ability = { activeUntil: 0, cooldownUntil: 0 };
+  state.dashCooldownUntil = 0;
   state.player = makePlayer();
   spawnEntities();
   render();
@@ -377,70 +377,21 @@ function endGame(screen, message) {
   state.endMessage = message;
 }
 
-function pressureFactor() {
-  if (config.pressureCurve === "ramp") {
-    return Math.min(1.85, 1 + state.elapsed * 0.03);
-  }
-  if (config.pressureCurve === "waves") {
-    return 1.15 + Math.abs(Math.sin(state.elapsed * 2.1)) * 0.45;
-  }
-  if (config.pressureCurve === "finale") {
-    const finalThreshold = config.survivalSeconds ? config.survivalSeconds * 0.7 : 18;
-    return state.elapsed >= finalThreshold ? 1.9 : 1.05;
-  }
-  return 1;
-}
-
-function abilityReady() {
-  return state.elapsed >= state.ability.cooldownUntil;
-}
-
-function shieldActive() {
-  return config.playerAbility === "shield" && state.elapsed < state.ability.activeUntil;
-}
-
-function tryUseAbility() {
-  if (!config.playerAbility || state.screen !== "running" || !abilityReady()) {
+function tryDash() {
+  if (config.playerAbility !== "dash" || state.screen !== "running" || state.elapsed < state.dashCooldownUntil) {
     return;
   }
 
-  if (config.playerAbility === "shield") {
-    state.ability.activeUntil = state.elapsed + 2.2;
-    state.ability.cooldownUntil = state.elapsed + 6.5;
-    return;
-  }
-
-  if (config.playerAbility === "dash") {
-    useDirectionalBurst(120);
-    state.ability.cooldownUntil = state.elapsed + 2.4;
-    return;
-  }
-
-  if (config.playerAbility === "blink") {
-    useDirectionalBurst(180);
-    state.ability.cooldownUntil = state.elapsed + 3.2;
-  }
-}
-
-function useDirectionalBurst(distance) {
+  const distance = config.movementModel === "lane_runner" ? 2 : 120;
   if (config.movementModel === "lane_runner") {
     if (config.controls.left.some((key) => state.keys.has(key))) {
-      moveLane(-2);
+      moveLane(-distance);
     } else if (config.controls.right.some((key) => state.keys.has(key))) {
-      moveLane(2);
+      moveLane(distance);
     } else {
       moveLane(1);
     }
-    return;
-  }
-
-  if (config.movementModel === "side_runner") {
-    const direction = config.controls.left.some((key) => state.keys.has(key)) ? -1 : 1;
-    state.player.x = clamp(
-      state.player.x + direction * distance,
-      state.player.radius + 20,
-      config.width - state.player.radius - 20
-    );
+    state.dashCooldownUntil = state.elapsed + 1.2;
     return;
   }
 
@@ -453,20 +404,7 @@ function useDirectionalBurst(distance) {
   const length = Math.hypot(dx, dy) || 1;
   state.player.x = clamp(state.player.x + (dx / length) * distance, state.player.radius, config.width - state.player.radius);
   state.player.y = clamp(state.player.y + (dy / length) * distance, state.player.radius, config.height - state.player.radius);
-}
-
-function abilityStatusText() {
-  if (!config.playerAbility) {
-    return config.flavorText;
-  }
-  if (shieldActive()) {
-    return `${config.flavorText} Ability: shield active.`;
-  }
-  if (abilityReady()) {
-    return `${config.flavorText} Ability ready: ${config.playerAbility.replace("_", " ")}.`;
-  }
-  const cooldown = Math.max(0, state.ability.cooldownUntil - state.elapsed).toFixed(1);
-  return `${config.flavorText} Ability cooldown: ${cooldown}s.`;
+  state.dashCooldownUntil = state.elapsed + 1.2;
 }
 
 function moveLane(direction) {
@@ -566,56 +504,28 @@ function respawnCollectible(collectible) {
 }
 
 function updateHazards(dt) {
-  const pressure = pressureFactor();
   for (const hazard of state.hazards) {
     if (config.hazardBehavior === "seek") {
       const dx = state.player.x - hazard.x;
       const dy = state.player.y - hazard.y;
       const length = Math.hypot(dx, dy) || 1;
-      let speed = randomRange(config.hazardSpeedMin * 0.82, config.hazardSpeedMax * 0.82) * pressure;
-      if (config.hazardPattern === "burst" && Math.sin(state.elapsed * 4 + hazard.phase) > 0.7) {
-        speed *= 1.8;
-      }
+      const speed = randomRange(config.hazardSpeedMin * 0.82, config.hazardSpeedMax * 0.82);
       hazard.x += (dx / length) * speed * dt;
       hazard.y += (dy / length) * speed * dt;
-      if (config.hazardPattern === "pulse") {
-        hazard.radius = 14 + Math.abs(Math.sin(state.elapsed * 5 + hazard.phase)) * 7;
-      }
       continue;
     }
     if (config.hazardBehavior === "fall") {
-      hazard.y += hazard.vy * pressure * dt;
-      if (config.hazardPattern === "zigzag") {
-        hazard.x += Math.sin(state.elapsed * 5 + hazard.phase) * 95 * dt;
-      }
+      hazard.y += hazard.vy * dt;
       if (hazard.y - hazard.radius > config.height) respawnHazard(hazard);
       continue;
     }
     if (config.hazardBehavior === "sweep") {
-      let sweepMultiplier = pressure;
-      if (config.hazardPattern === "burst" && Math.sin(state.elapsed * 4 + hazard.phase) > 0.75) {
-        sweepMultiplier *= 1.9;
-      }
-      hazard.x += hazard.vx * sweepMultiplier * dt;
-      if (config.hazardPattern === "zigzag") {
-        hazard.y += Math.sin(state.elapsed * 6 + hazard.phase) * 120 * dt;
-      }
+      hazard.x += hazard.vx * dt;
       if (hazard.x + hazard.radius < 0) respawnHazard(hazard);
       continue;
     }
-    let driftMultiplier = pressure;
-    if (config.hazardPattern === "burst" && Math.sin(state.elapsed * 3 + hazard.phase) > 0.8) {
-      driftMultiplier *= 1.7;
-    }
-    hazard.x += hazard.vx * driftMultiplier * dt;
-    hazard.y += hazard.vy * driftMultiplier * dt;
-    if (config.hazardPattern === "zigzag") {
-      hazard.x += Math.sin(state.elapsed * 4 + hazard.phase) * 28 * dt;
-      hazard.y += Math.cos(state.elapsed * 4 + hazard.phase) * 28 * dt;
-    }
-    if (config.hazardPattern === "pulse") {
-      hazard.radius = 13 + Math.abs(Math.sin(state.elapsed * 5 + hazard.phase)) * 5;
-    }
+    hazard.x += hazard.vx * dt;
+    hazard.y += hazard.vy * dt;
     if (hazard.x < hazard.radius || hazard.x > config.width - hazard.radius) {
       hazard.vx *= -1;
       hazard.x = clamp(hazard.x, hazard.radius, config.width - hazard.radius);
@@ -629,15 +539,6 @@ function updateHazards(dt) {
 
 function updateCollectibles(dt) {
   for (const collectible of state.collectibles) {
-    if (config.playerAbility === "magnet") {
-      const dx = state.player.x - collectible.x;
-      const dy = state.player.y - collectible.y;
-      const distance = Math.hypot(dx, dy);
-      if (distance < 170 && distance > 1) {
-        collectible.x += (dx / distance) * 180 * dt;
-        collectible.y += (dy / distance) * 180 * dt;
-      }
-    }
     if (config.collectibleBehavior === "drift") {
       collectible.x += Math.cos(state.elapsed + collectible.phase) * collectible.driftX * dt;
       collectible.y += Math.sin(state.elapsed + collectible.phase) * collectible.driftY * dt;
@@ -662,17 +563,10 @@ function updateCollectibles(dt) {
 
 function handleHazardCollisions() {
   for (const hazard of state.hazards) {
-    if (!circlesOverlap(state.player, hazard)) {
-      continue;
-    }
-    if (shieldActive()) {
-      state.ability.activeUntil = 0;
-      state.ability.cooldownUntil = state.elapsed + 5.4;
-      respawnHazard(hazard);
+    if (circlesOverlap(state.player, hazard)) {
+      endGame("lose", config.loseCondition);
       return;
     }
-    endGame("lose", config.loseCondition);
-    return;
   }
 }
 
@@ -832,7 +726,7 @@ function renderHud() {
   scoreLine.textContent = scoreParts.join(" | ");
   statusLine.textContent = state.screen === "running" ? config.objective : state.endMessage;
   instructionLine.textContent = config.instructionText;
-  flavorLine.textContent = abilityStatusText();
+  flavorLine.textContent = config.flavorText;
 }
 
 function renderLegend() {
@@ -852,13 +746,6 @@ function render() {
   for (const collectible of state.collectibles) drawEntity(collectible, "collectible");
   for (const hazard of state.hazards) drawEntity(hazard, "hazard");
   drawEntity(state.player, "player");
-  if (shieldActive()) {
-    ctx.beginPath();
-    ctx.arc(state.player.x, state.player.y, state.player.radius + 9, 0, Math.PI * 2);
-    ctx.strokeStyle = config.palette.accent;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-  }
   drawOverlay();
   renderHud();
 }
@@ -875,7 +762,7 @@ function frame(timestamp) {
 window.addEventListener("keydown", (event) => {
   state.keys.add(event.key);
   if (event.key.toLowerCase() === "r") resetGame();
-  if (event.key === "Shift" || event.key.toLowerCase() === "e") tryUseAbility();
+  if (event.key === "Shift" || event.key.toLowerCase() === "e") tryDash();
   if (config.movementModel === "lane_runner") {
     if (config.controls.left.some((key) => key === event.key)) moveLane(-1);
     if (config.controls.right.some((key) => key === event.key)) moveLane(1);
@@ -932,8 +819,7 @@ class AgenticScene extends Phaser.Scene {
     this.ended = false;
     this.endMessage = "";
     this.laneIndex = Math.floor(config.laneCenters.length / 2);
-    this.abilityActiveUntil = 0;
-    this.abilityCooldownUntil = 0;
+    this.dashCooldownUntil = 0;
     this.extraJumps = 0;
   }
 
@@ -1086,63 +972,39 @@ class AgenticScene extends Phaser.Scene {
     sprite.driftY = randomRange(-35, 35);
   }
 
-  pressureFactor() {
-    if (config.pressureCurve === "ramp") {
-      return Math.min(1.85, 1 + this.elapsed * 0.03);
-    }
-    if (config.pressureCurve === "waves") {
-      return 1.15 + Math.abs(Math.sin(this.elapsed * 2.1)) * 0.45;
-    }
-    if (config.pressureCurve === "finale") {
-      const threshold = config.survivalSeconds ? config.survivalSeconds * 0.7 : 18;
-      return this.elapsed >= threshold ? 1.9 : 1.05;
-    }
-    return 1;
-  }
-
-  abilityReady() {
-    return this.elapsed >= this.abilityCooldownUntil;
-  }
-
-  shieldActive() {
-    return config.playerAbility === "shield" && this.elapsed < this.abilityActiveUntil;
-  }
-
-  tryUseAbility() {
-    if (!config.playerAbility || this.ended || !this.abilityReady()) {
+  tryDash() {
+    if (config.playerAbility !== "dash" || this.ended || this.elapsed < this.dashCooldownUntil) {
       return;
     }
-    if (config.playerAbility === "shield") {
-      this.abilityActiveUntil = this.elapsed + 2.2;
-      this.abilityCooldownUntil = this.elapsed + 6.5;
-      return;
-    }
-    if (config.playerAbility === "dash" || config.playerAbility === "blink") {
-      const burst = config.playerAbility === "blink" ? 180 : 120;
-      const cooldown = config.playerAbility === "blink" ? 3.2 : 2.4;
-      if (config.movementModel === "lane_runner") {
+
+    if (config.movementModel === "lane_runner") {
+      if (this.keys.A.isDown || this.keys.LEFT.isDown) {
+        this.laneIndex = Math.max(0, this.laneIndex - 1);
+      } else if (this.keys.D.isDown || this.keys.RIGHT.isDown) {
         this.laneIndex = Math.min(config.laneCenters.length - 1, this.laneIndex + 1);
-      } else if (config.movementModel === "side_runner") {
-        const direction = this.player.body.velocity.x < 0 ? -1 : 1;
-        this.player.x = Phaser.Math.Clamp(this.player.x + direction * burst, 24, config.width - 24);
       } else {
-        const pointer = this.input.activePointer;
-        const dx = pointer.worldX - this.player.x;
-        const dy = pointer.worldY - this.player.y;
-        const length = Math.hypot(dx, dy) || 1;
-        this.player.x = Phaser.Math.Clamp(this.player.x + (dx / length) * burst, 20, config.width - 20);
-        this.player.y = Phaser.Math.Clamp(this.player.y + (dy / length) * burst, 20, config.height - 20);
-        this.player.body.reset(this.player.x, this.player.y);
+        this.laneIndex = Math.min(config.laneCenters.length - 1, this.laneIndex + 1);
       }
-      this.abilityCooldownUntil = this.elapsed + cooldown;
+      this.dashCooldownUntil = this.elapsed + 1.2;
+      return;
     }
-  }
 
-  abilityStatusText() {
-    if (!config.playerAbility) return config.flavorText;
-    if (this.shieldActive()) return `${config.flavorText} Ability: shield active.`;
-    if (this.abilityReady()) return `${config.flavorText} Ability ready: ${config.playerAbility.replace("_", " ")}.`;
-    return `${config.flavorText} Ability cooldown: ${(this.abilityCooldownUntil - this.elapsed).toFixed(1)}s.`;
+    if (config.movementModel === "side_runner") {
+      const direction = this.player.body.velocity.x < 0 ? -1 : 1;
+      this.player.x = Phaser.Math.Clamp(this.player.x + direction * 120, 24, config.width - 24);
+      this.player.body.reset(this.player.x, this.player.y);
+      this.dashCooldownUntil = this.elapsed + 1.2;
+      return;
+    }
+
+    const pointer = this.input.activePointer;
+    const dx = pointer.worldX - this.player.x;
+    const dy = pointer.worldY - this.player.y;
+    const length = Math.hypot(dx, dy) || 1;
+    this.player.x = Phaser.Math.Clamp(this.player.x + (dx / length) * 120, 20, config.width - 20);
+    this.player.y = Phaser.Math.Clamp(this.player.y + (dy / length) * 120, 20, config.height - 20);
+    this.player.body.reset(this.player.x, this.player.y);
+    this.dashCooldownUntil = this.elapsed + 1.2;
   }
 
   update(_, deltaMs) {
@@ -1150,7 +1012,7 @@ class AgenticScene extends Phaser.Scene {
     const delta = Math.min(0.033, deltaMs / 1000);
     this.elapsed += delta;
     if (Phaser.Input.Keyboard.JustDown(this.keys.SHIFT) || Phaser.Input.Keyboard.JustDown(this.keys.E)) {
-      this.tryUseAbility();
+      this.tryDash();
     }
     this.updatePlayer(delta);
     this.updateHazards(delta);
@@ -1204,16 +1066,12 @@ class AgenticScene extends Phaser.Scene {
   }
 
   updateHazards(delta) {
-    const pressure = this.pressureFactor();
     for (const hazard of this.hazards) {
       if (config.hazardBehavior === "seek") {
         const dx = this.player.x - hazard.x;
         const dy = this.player.y - hazard.y;
         const length = Math.hypot(dx, dy) || 1;
-        let speed = randomRange(config.hazardSpeedMin * 0.82, config.hazardSpeedMax * 0.82) * pressure;
-        if (config.hazardPattern === "burst" && Math.sin(this.elapsed * 4 + hazard.phase) > 0.7) {
-          speed *= 1.8;
-        }
+        const speed = randomRange(config.hazardSpeedMin * 0.82, config.hazardSpeedMax * 0.82);
         hazard.x += (dx / length) * speed * delta;
         hazard.y += (dy / length) * speed * delta;
         hazard.body.reset(hazard.x, hazard.y);
@@ -1221,39 +1079,16 @@ class AgenticScene extends Phaser.Scene {
       }
 
       if (config.hazardBehavior === "fall") {
-        hazard.body.setVelocityY(Math.abs(hazard.body.velocity.y) * pressure);
-        if (config.hazardPattern === "zigzag") {
-          hazard.x += Math.sin(this.elapsed * 5 + hazard.phase) * 95 * delta;
-          hazard.body.reset(hazard.x, hazard.y);
-        }
         if (hazard.y - hazard.height / 2 > config.height) this.resetHazard(hazard);
         continue;
       }
 
       if (config.hazardBehavior === "sweep") {
-        let sweepVelocity = -Math.abs(hazard.body.velocity.x || randomRange(config.hazardSpeedMin, config.hazardSpeedMax)) * pressure;
-        if (config.hazardPattern === "burst" && Math.sin(this.elapsed * 4 + hazard.phase) > 0.75) {
-          sweepVelocity *= 1.9;
-        }
-        hazard.body.setVelocityX(sweepVelocity);
-        if (config.hazardPattern === "zigzag") {
-          hazard.y += Math.sin(this.elapsed * 6 + hazard.phase) * 120 * delta;
-          hazard.body.reset(hazard.x, hazard.y);
-        }
         if (hazard.x + hazard.width / 2 < 0) this.resetHazard(hazard);
         continue;
       }
 
-      let speedMultiplier = pressure;
-      if (config.hazardPattern === "burst" && Math.sin(this.elapsed * 3 + hazard.phase) > 0.8) {
-        speedMultiplier *= 1.7;
-      }
-      hazard.body.setVelocity(hazard.speedX * speedMultiplier, hazard.speedY * speedMultiplier);
-      if (config.hazardPattern === "zigzag") {
-        hazard.x += Math.sin(this.elapsed * 4 + hazard.phase) * 24 * delta;
-        hazard.y += Math.cos(this.elapsed * 4 + hazard.phase) * 24 * delta;
-        hazard.body.reset(hazard.x, hazard.y);
-      }
+      hazard.body.setVelocity(hazard.speedX, hazard.speedY);
       if (hazard.x < hazard.width / 2 || hazard.x > config.width - hazard.width / 2) {
         hazard.speedX *= -1;
         hazard.body.setVelocity(hazard.speedX, hazard.speedY);
@@ -1267,16 +1102,6 @@ class AgenticScene extends Phaser.Scene {
 
   updateCollectibles(delta) {
     for (const collectible of this.collectibles) {
-      if (config.playerAbility === "magnet") {
-        const dx = this.player.x - collectible.x;
-        const dy = this.player.y - collectible.y;
-        const distance = Math.hypot(dx, dy);
-        if (distance < 170 && distance > 1) {
-          collectible.x += (dx / distance) * 180 * delta;
-          collectible.y += (dy / distance) * 180 * delta;
-          collectible.body.reset(collectible.x, collectible.y);
-        }
-      }
       if (config.collectibleBehavior === "drift") {
         collectible.x += Math.cos(this.elapsed + collectible.phase) * collectible.driftX * delta;
         collectible.y += Math.sin(this.elapsed + collectible.phase) * collectible.driftY * delta;
@@ -1302,12 +1127,6 @@ class AgenticScene extends Phaser.Scene {
   checkCollisions() {
     for (const hazard of this.hazards) {
       if (Phaser.Geom.Intersects.RectangleToRectangle(this.player.getBounds(), hazard.getBounds())) {
-        if (this.shieldActive()) {
-          this.abilityActiveUntil = 0;
-          this.abilityCooldownUntil = this.elapsed + 5.4;
-          this.resetHazard(hazard);
-          return;
-        }
         this.endGame("lose", config.loseCondition);
         return;
       }
@@ -1357,7 +1176,7 @@ class AgenticScene extends Phaser.Scene {
     scoreLine.textContent = scoreParts.join(" | ");
     statusLine.textContent = this.ended ? this.endMessage : config.objective;
     instructionLine.textContent = config.instructionText;
-    flavorLine.textContent = this.abilityStatusText();
+    flavorLine.textContent = config.flavorText;
   }
 }
 
@@ -1491,12 +1310,6 @@ class CodeGenerator:
     def _ability_hint(self, spec: GameSpec) -> str:
         if spec.player_ability == "dash":
             return " Press Shift or E to dash."
-        if spec.player_ability == "shield":
-            return " Press Shift or E to trigger a short shield."
-        if spec.player_ability == "magnet":
-            return " Nearby collectibles are pulled toward you."
-        if spec.player_ability == "blink":
-            return " Press Shift or E to blink forward."
         if spec.player_ability == "double_jump":
             return " Press jump again in the air for a second jump."
         return ""
