@@ -58,6 +58,7 @@ Implemented:
   - validate
 - Structured game-spec planning flow
 - richer clarification and personalization capture
+- live LLM-first clarification with heuristic fallback
 - live LLM-first code generation with validation-aware fallback
 - Browser game output generation for:
   - `index.html`
@@ -108,6 +109,12 @@ A clarification manager was added to:
 - inspect the user prompt
 - identify missing implementation-critical details
 - ask focused personalization questions when needed
+
+Current behavior:
+
+- live providers can propose structured clarification questions directly from the raw prompt
+- returned questions are filtered against the allowed clarification keys and the already-detected prompt facts
+- if live clarification fails or returns unusable output, the repo falls back to local prompt heuristics
 
 The clarification flow now asks about more than just minimum viability. It can capture:
 
@@ -254,7 +261,10 @@ python3 -m unittest discover -s tests -v
 These tests verify:
 
 - clarification question behavior
+- live LLM clarification selection and fallback behavior
 - planner normalization
+- heist-style prompt normalization into collection / hybrid specs
+- live LLM code-generation success and fallback behavior
 - generation of required files
 - validation success for generated output
 
@@ -362,6 +372,33 @@ Observed result:
 - the framework selector chose `phaser`
 - the plan included `framework: "phaser"`
 - generation completed successfully with framework-specific output
+
+### LLM-first clarification verification
+
+Recent regression coverage and local smoke validation confirmed:
+
+- live providers can now propose structured clarification questions before the heuristic path is used
+- invalid or failed live clarification responses fall back cleanly to the local clarification manager
+- cyber-heist prompts now produce heist-specific clarification wording instead of only generic follow-up wording
+
+### LLM-first code-generation verification
+
+Recent regression coverage and local smoke validation confirmed:
+
+- live providers can now generate the full browser game bundle directly from:
+  - the original prompt
+  - the structured game spec
+  - product constraints
+  - validation requirements
+- generated bundles are immediately validated
+- if the first live bundle fails checks, one repair pass is attempted with explicit validation feedback
+- if live bundle generation still fails, the repo falls back to the built-in generator without breaking the CLI flow
+- mock-mode CLI runs still complete successfully through the fallback path
+
+Verification note:
+
+- the live code-generation path is currently covered by unit tests and the integrated code path
+- a real networked end-to-end run against a live provider for bundle generation was not executed in this environment
 
 ### Documentation / operator-guide update
 
@@ -640,6 +677,44 @@ Status:
 
 - fixed
 
+### 16. Clarification remained too heuristic-first
+
+Issue:
+
+- clarification still depended mainly on local prompt heuristics
+- even with better wording, the system could still drift toward repeated question patterns
+
+Fix:
+
+- added a live LLM clarification path that returns structured JSON questions from the raw prompt
+- validated returned questions against the allowed clarification keys and prompt facts
+- preserved the local heuristic clarification path as fallback for offline runs, tests, and provider failures
+
+Status:
+
+- fixed
+
+### 17. Code generation still came from built-in templates
+
+Issue:
+
+- the planning flow became more expressive, but the final browser-game code still primarily came from built-in generator templates
+- this kept too many outputs feeling like variations of the same runtime
+
+Fix:
+
+- added a live LLM code-generation path for the full bundle:
+  - `index.html`
+  - `style.css`
+  - `game.js`
+- passed the original prompt, structured game spec, UI/runtime context, product constraints, and validation requirements into the generation prompt
+- added immediate validation plus one repair retry before falling back
+- kept the built-in generator as the deterministic fallback path for mock mode and live-provider failures
+
+Status:
+
+- fixed
+
 ## Git / Repo Status
 
 The project was pushed to:
@@ -653,6 +728,16 @@ Branch:
 Initial pushed commit:
 
 - `82c57e2` `Initial project setup`
+
+Recent local commits:
+
+- `5e4afe9` `Move clarification to LLM-first flow`
+- `4d6ad47` `Generate game bundles with LLM first`
+
+Current local state:
+
+- latest local commits were created successfully in the current environment
+- push status for those latest commits was not revalidated in this session
 
 ## Important Notes
 
@@ -675,6 +760,8 @@ This file should be updated whenever any of the following happens:
 ## Current Open Items
 
 - confirm real end-to-end generation against the live OpenRouter model in the user environment when the free model is not rate-limited
+- confirm real end-to-end LLM bundle generation against a live provider in the user environment
+- evaluate whether more of the structured planning step should also become live-LLM-first instead of mostly normalized heuristics plus LLM copy
 - test Docker build and run on the user machine
   - Docker was not available in the current WSL environment used for validation
 - continue feature work based on next requirements
