@@ -16,14 +16,20 @@ class Planner:
 
     def build_spec(self, prompt: str, answers: dict[str, str], framework: str = "vanilla_js") -> GameSpec:
         signals = analyze_prompt(prompt)
-        merged = self._merge_inputs(prompt, signals, answers)
+        llm_plan = self._build_llm_plan(prompt, answers, framework, signals)
+        merged = self._merge_inputs(prompt, signals, answers, llm_plan)
         llm_copy = self.llm_client.create_plan_copy(prompt, merged)
+        title = self._plan_text(llm_plan, "title") or llm_copy["title"]
+        concept_summary = self._plan_text(llm_plan, "concept_summary") or llm_copy["concept_summary"]
+        generation_notes = merged["generation_notes"] + [
+            note for note in llm_copy["generation_notes"] if note not in merged["generation_notes"]
+        ]
 
         return GameSpec(
-            title=llm_copy["title"],
+            title=title,
             source_prompt=prompt,
             theme=merged["theme"],
-            concept_summary=llm_copy["concept_summary"],
+            concept_summary=concept_summary,
             framework=framework,
             objective=merged["objective"],
             perspective=merged["perspective"],
@@ -52,7 +58,7 @@ class Planner:
             lose_condition=merged["lose_condition"],
             rendering_approach=self._resolve_rendering_approach(framework),
             file_structure=["index.html", "style.css", "game.js"],
-            generation_notes=llm_copy["generation_notes"],
+            generation_notes=generation_notes,
             arena_width=merged["arena_width"],
             arena_height=merged["arena_height"],
             player_speed=merged["player_speed"],
@@ -65,42 +71,123 @@ class Planner:
     def render_plan(self, spec: GameSpec) -> str:
         return json.dumps(spec.to_dict(), indent=2)
 
-    def _merge_inputs(self, prompt: str, signals: PromptSignals, answers: dict[str, str]) -> dict[str, Any]:
-        theme = self._resolve_theme(signals.theme, answers.get("theme"), prompt)
-        mechanic = self._resolve_mechanic(signals.core_mechanic, answers.get("objective"), prompt)
-        perspective = self._resolve_perspective(signals.perspective, answers.get("perspective"))
-        controls = self._resolve_controls(signals.controls, answers.get("controls"))
+    def _build_llm_plan(
+        self,
+        prompt: str,
+        answers: dict[str, str],
+        framework: str,
+        signals: PromptSignals,
+    ) -> dict[str, Any]:
+        create_game_plan = getattr(self.llm_client, "create_game_plan", None)
+        if not callable(create_game_plan):
+            return {}
+        payload = create_game_plan(
+            prompt,
+            answers,
+            framework,
+            self._build_planning_context(prompt, answers, framework, signals),
+        )
+        return payload if isinstance(payload, dict) else {}
+
+    def _build_planning_context(
+        self,
+        prompt: str,
+        answers: dict[str, str],
+        framework: str,
+        signals: PromptSignals,
+    ) -> dict[str, Any]:
+        return {
+            "prompt": prompt,
+            "user_answers": answers,
+            "requested_framework": framework,
+            "prompt_signals": {
+                "theme": signals.theme,
+                "core_mechanic": signals.core_mechanic,
+                "perspective": signals.perspective,
+                "controls": signals.controls,
+                "difficulty": signals.difficulty,
+                "duration_seconds": signals.duration_seconds,
+                "score_target": signals.score_target,
+                "lose_condition": signals.lose_condition,
+                "unsupported_features": signals.unsupported_features,
+                "tone": signals.tone,
+                "player_role": signals.player_role,
+                "special_mechanic": signals.special_mechanic,
+                "progression_hint": signals.progression_hint,
+            },
+            "constraints": [
+                "small 2D browser game only",
+                "single local bundle with index.html, style.css, and game.js",
+                "no backend services",
+                "design should be specific to the prompt and user answers",
+            ],
+        }
+
+    def _merge_inputs(
+        self,
+        prompt: str,
+        signals: PromptSignals,
+        answers: dict[str, str],
+        llm_plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        theme = self._resolve_theme(self._plan_text(llm_plan, "theme") or signals.theme, answers.get("theme"), prompt)
+        objective_answer = answers.get("objective") or self._plan_text(llm_plan, "objective")
+        mechanic = self._resolve_mechanic(self._plan_text(llm_plan, "core_mechanic") or signals.core_mechanic, objective_answer, prompt)
+        perspective = self._resolve_perspective(self._plan_text(llm_plan, "perspective") or signals.perspective, answers.get("perspective"))
+        controls = self._resolve_controls(self._plan_controls(llm_plan) or signals.controls, answers.get("controls"))
         difficulty = signals.difficulty
-        player_entity = self._resolve_player_entity(theme)
-        player_identity = self._resolve_player_identity(player_entity, signals.player_role, answers.get("player_identity"))
+        player_entity = self._plan_text(llm_plan, "player_entity") or self._resolve_player_entity(theme)
+        player_identity = self._resolve_player_identity(
+            player_entity,
+            self._plan_text(llm_plan, "player_identity") or signals.player_role,
+            answers.get("player_identity"),
+        )
         play_variant = self._resolve_play_variant(prompt, answers, mechanic, perspective, theme)
         movement_model = self._resolve_movement_model(play_variant)
-        collectible_entity = self._resolve_collectible_entity(theme, mechanic)
-        hazard_entity = self._resolve_hazard_entity(theme)
+        collectible_entity = self._plan_text(llm_plan, "collectible_entity") or self._resolve_collectible_entity(theme, mechanic)
+        hazard_entity = self._plan_text(llm_plan, "hazard_entity") or self._resolve_hazard_entity(theme)
         signature_mechanic = self._resolve_signature_mechanic(
-            answers.get("signature_mechanic"),
+            answers.get("signature_mechanic") or self._plan_text(llm_plan, "signature_mechanic"),
             signals.special_mechanic,
             play_variant,
         )
         progression_style = self._resolve_progression_style(
-            answers.get("progression_style"),
+            answers.get("progression_style") or self._plan_text(llm_plan, "progression_style"),
             signals.progression_hint,
             play_variant,
             mechanic,
         )
-        visual_tone = self._resolve_visual_tone(answers.get("visual_tone"), signals.tone, theme, difficulty)
-        arena_detail = self._resolve_arena_detail(answers.get("arena_detail"), prompt, theme, play_variant)
+        visual_tone = self._resolve_visual_tone(
+            answers.get("visual_tone") or self._plan_text(llm_plan, "visual_tone"),
+            signals.tone,
+            theme,
+            difficulty,
+        )
+        arena_detail = self._resolve_arena_detail(
+            answers.get("arena_detail") or self._plan_text(llm_plan, "arena_detail"),
+            prompt,
+            theme,
+            play_variant,
+        )
         player_ability = self._resolve_player_ability(signature_mechanic, prompt, answers, movement_model)
         pressure_curve = self._resolve_pressure_curve(progression_style, play_variant, difficulty)
         hazard_pattern = self._resolve_hazard_pattern(progression_style, signature_mechanic, play_variant)
         hazard_behavior = self._resolve_hazard_behavior(play_variant, hazard_pattern)
         collectible_behavior = self._resolve_collectible_behavior(play_variant, collectible_entity, signature_mechanic)
         arena_layout = self._resolve_arena_layout(play_variant)
-        score_target = self._resolve_score_target(mechanic, signals.score_target, prompt, answers)
-        survival_seconds = self._resolve_survival_seconds(mechanic, signals.duration_seconds, prompt, answers)
-        lose_condition = self._resolve_lose_condition(answers.get("lose_condition"), signals.lose_condition, hazard_entity)
+        score_target = self._plan_int(llm_plan, "score_target")
+        if score_target is None:
+            score_target = self._resolve_score_target(mechanic, signals.score_target, prompt, answers)
+        survival_seconds = self._plan_int(llm_plan, "survival_seconds")
+        if survival_seconds is None:
+            survival_seconds = self._resolve_survival_seconds(mechanic, signals.duration_seconds, prompt, answers)
+        lose_condition = self._resolve_lose_condition(
+            answers.get("lose_condition") or self._plan_text(llm_plan, "lose_condition"),
+            signals.lose_condition,
+            hazard_entity,
+        )
         objective = self._resolve_objective_sentence(
-            answers.get("objective"),
+            objective_answer,
             mechanic,
             score_target,
             survival_seconds,
@@ -109,7 +196,7 @@ class Planner:
             player_identity,
             signature_mechanic,
         )
-        win_condition = self._resolve_win_condition(
+        win_condition = self._plan_text(llm_plan, "win_condition") or self._resolve_win_condition(
             mechanic,
             score_target,
             survival_seconds,
@@ -120,6 +207,7 @@ class Planner:
             f"Simplified unsupported request area '{feature}' into a small 2D single-player browser game."
             for feature in signals.unsupported_features
         ]
+        unsupported_notes.extend(self._plan_notes(llm_plan))
         unsupported_notes.extend(
             [
                 f"Personalized around controlling {player_identity} in {arena_detail}.",
@@ -178,6 +266,52 @@ class Planner:
             "arena_width": tuning["arena_width"],
             "arena_height": tuning["arena_height"],
         }
+
+    def _plan_text(self, plan: dict[str, Any], key: str) -> str | None:
+        value = plan.get(key)
+        if not isinstance(value, str):
+            return None
+        cleaned = " ".join(value.strip().split())
+        return cleaned or None
+
+    def _plan_int(self, plan: dict[str, Any], key: str) -> int | None:
+        value = plan.get(key)
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value if value >= 0 else None
+        if isinstance(value, str) and value.strip().isdigit():
+            parsed = int(value.strip())
+            return parsed if parsed >= 0 else None
+        return None
+
+    def _plan_controls(self, plan: dict[str, Any]) -> dict[str, str] | None:
+        value = plan.get("controls")
+        if not isinstance(value, dict):
+            return None
+        resolved: dict[str, str] = {}
+        for direction in ("up", "down", "left", "right"):
+            raw = value.get(direction)
+            if not isinstance(raw, str):
+                return None
+            cleaned = " ".join(raw.strip().split())
+            if not cleaned:
+                return None
+            resolved[direction] = cleaned
+        return resolved
+
+    def _plan_notes(self, plan: dict[str, Any]) -> list[str]:
+        raw_notes = plan.get("generation_notes")
+        if not isinstance(raw_notes, list):
+            return []
+        notes: list[str] = []
+        for item in raw_notes:
+            if not isinstance(item, str):
+                continue
+            cleaned = " ".join(item.strip().split())
+            if cleaned:
+                notes.append(cleaned)
+        return notes
 
     def _resolve_rendering_approach(self, framework: str) -> str:
         if framework == "phaser":

@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agentic_game_builder.cli import build_spec_with_fallback
 from agentic_game_builder.clarification import ClarificationManager
 from agentic_game_builder.framework_selector import FrameworkSelector
 from agentic_game_builder.generator import CodeGenerator
-from agentic_game_builder.llm import LLMRequestError, MockLLMClient, MultiLLMClient
+from agentic_game_builder.llm import (
+    LLMRequestError,
+    MockLLMClient,
+    MultiLLMClient,
+    OpenAICompatibleLLMClient,
+    resolve_role_llm_clients,
+)
 from agentic_game_builder.output import OutputManager
 from agentic_game_builder.planner import Planner
 from agentic_game_builder.validator import Validator
@@ -103,6 +111,37 @@ class FrameworkSelectorTests(unittest.TestCase):
         self.assertEqual(decision.framework, "vanilla_js")
 
 
+class LLMResolutionTests(unittest.TestCase):
+    def test_role_resolution_uses_groq_for_design_and_openrouter_for_codegen(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AIGB_GROQ_API_KEY": "groq-test-key",
+                "AIGB_GROQ_PRIMARY_MODEL": "openai/gpt-oss-120b",
+                "AIGB_OPENROUTER_API_KEY": "openrouter-test-key",
+                "AIGB_OPENROUTER_MODEL": "qwen/qwen3-coder:free",
+            },
+            clear=True,
+        ):
+            clients = resolve_role_llm_clients()
+
+        self.assertIs(clients.clarification_client, clients.planning_client)
+        self.assertIsInstance(clients.clarification_client, OpenAICompatibleLLMClient)
+        self.assertIsInstance(clients.code_generation_client, OpenAICompatibleLLMClient)
+        self.assertEqual(clients.clarification_client.model, "openai/gpt-oss-120b")
+        self.assertEqual(clients.code_generation_client.model, "qwen/qwen3-coder:free")
+        self.assertTrue(any("Groq openai/gpt-oss-120b" in note for note in clients.notes))
+        self.assertTrue(any("OpenRouter qwen/qwen3-coder:free" in note for note in clients.notes))
+
+    def test_role_resolution_uses_mock_clients_when_mock_provider_is_forced(self) -> None:
+        with patch.dict(os.environ, {"AIGB_PROVIDER": "mock"}, clear=True):
+            clients = resolve_role_llm_clients()
+
+        self.assertIsInstance(clients.clarification_client, MockLLMClient)
+        self.assertIsInstance(clients.planning_client, MockLLMClient)
+        self.assertIsInstance(clients.code_generation_client, MockLLMClient)
+
+
 class PlannerTests(unittest.TestCase):
     def test_planner_normalizes_space_survival_prompt(self) -> None:
         planner = Planner(llm_client=MockLLMClient())
@@ -191,6 +230,64 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(spec.core_mechanic, "hybrid")
         self.assertEqual(spec.play_variant, "collector_escape")
         self.assertEqual(spec.collectible_entity, "data core")
+
+    def test_planner_uses_structured_llm_plan_when_available(self) -> None:
+        class StructuredPlanningLLMClient:
+            def create_game_plan(
+                self,
+                prompt: str,
+                answers: dict[str, str],
+                framework: str,
+                planning_context: dict[str, object],
+            ) -> dict[str, object]:
+                return {
+                    "title": "Archive Breach",
+                    "concept_summary": "Slip through a sealed archive and steal marked cores before the alarm locks the exits.",
+                    "theme": "cyber archive",
+                    "objective": "Steal marked data cores and escape before the lockdown seals the vault.",
+                    "perspective": "top-down",
+                    "core_mechanic": "hybrid",
+                    "controls": {"up": "W", "down": "S", "left": "A", "right": "D"},
+                    "player_identity": "vault infiltrator",
+                    "player_entity": "infiltrator",
+                    "hazard_entity": "security sentinel",
+                    "collectible_entity": "data core",
+                    "signature_mechanic": "Use a short dash burst to cut through scanner gaps.",
+                    "progression_style": "rising alarm pressure",
+                    "visual_tone": "mysterious",
+                    "arena_detail": "a sealed neon archive vault",
+                    "win_condition": "Win by stealing every marked data core and reaching the extraction pad.",
+                    "lose_condition": "Lose if the alarm fully locks the vault or a sentinel tags the player.",
+                    "score_target": 80,
+                    "survival_seconds": None,
+                    "generation_notes": ["The run should feel like a focused infiltration instead of open survival."],
+                }
+
+            def create_plan_copy(self, prompt: str, normalized_spec: dict[str, str]) -> dict[str, object]:
+                return {
+                    "title": "Fallback Title",
+                    "concept_summary": "Fallback summary.",
+                    "generation_notes": ["Fallback plan note."],
+                }
+
+        planner = Planner(llm_client=StructuredPlanningLLMClient())
+        spec = planner.build_spec(
+            "Make a cyber heist game about stealing data.",
+            {
+                "controls": "WASD",
+                "player_identity": "vault infiltrator",
+            },
+        )
+
+        self.assertEqual(spec.title, "Archive Breach")
+        self.assertEqual(spec.concept_summary, "Slip through a sealed archive and steal marked cores before the alarm locks the exits.")
+        self.assertEqual(spec.objective, "Steal marked data cores and escape before the lockdown seals the vault.")
+        self.assertEqual(spec.player_identity, "vault infiltrator")
+        self.assertEqual(spec.hazard_entity, "security sentinel")
+        self.assertEqual(spec.collectible_entity, "data core")
+        self.assertEqual(spec.score_target, 80)
+        self.assertEqual(spec.win_condition, "Win by stealing every marked data core and reaching the extraction pad.")
+        self.assertIn("focused infiltration", " ".join(spec.generation_notes))
 
     def test_cli_falls_back_to_mock_when_live_llm_fails(self) -> None:
         class FailingLLMClient:

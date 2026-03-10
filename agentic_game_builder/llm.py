@@ -15,6 +15,15 @@ class LLMClient(Protocol):
     def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
         """Return structured clarification questions for the user's prompt."""
 
+    def create_game_plan(
+        self,
+        prompt: str,
+        answers: dict[str, str],
+        framework: str,
+        planning_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Return structured planning fields for the requested game."""
+
     def create_game_bundle(
         self,
         prompt: str,
@@ -36,9 +45,43 @@ class LLMRequestError(RuntimeError):
 
 
 @dataclass(slots=True)
+class ResolvedLLMClients:
+    clarification_client: LLMClient
+    planning_client: LLMClient
+    code_generation_client: LLMClient
+    notes: list[str]
+
+
+@dataclass(slots=True)
 class MultiLLMClient:
     clients: list[tuple[str, LLMClient]]
     last_success_label: str | None = None
+
+    def create_game_plan(
+        self,
+        prompt: str,
+        answers: dict[str, str],
+        framework: str,
+        planning_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        failures: list[str] = []
+        for label, client in self.clients:
+            try:
+                response = client.create_game_plan(
+                    prompt,
+                    answers,
+                    framework,
+                    planning_context,
+                )
+                self.last_success_label = label
+                return response
+            except (AttributeError, LLMRequestError) as error:
+                failures.append(f"{label}: {error}")
+                continue
+        raise LLMRequestError(
+            "All configured live LLM providers failed. " + " | ".join(failures),
+            retriable=True,
+        )
 
     def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
         failures: list[str] = []
@@ -99,6 +142,15 @@ class MultiLLMClient:
 
 @dataclass(slots=True)
 class MockLLMClient:
+    def create_game_plan(
+        self,
+        prompt: str,
+        answers: dict[str, str],
+        framework: str,
+        planning_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {}
+
     def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
         raise LLMRequestError("Mock LLM clarification is intentionally disabled so the heuristic fallback can run.")
 
@@ -154,6 +206,67 @@ class OpenAICompatibleLLMClient:
     base_url: str
     referer: str | None = None
     title: str | None = None
+
+    def create_game_plan(
+        self,
+        prompt: str,
+        answers: dict[str, str],
+        framework: str,
+        planning_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        system_prompt = textwrap.dedent(
+            """
+            You are the design-planning model for Agentic Game Builder MVP.
+            Analyze the user's vague browser-game idea and produce a concrete, implementation-ready game plan.
+
+            Return valid JSON with these keys:
+            - theme
+            - title
+            - concept_summary
+            - objective
+            - perspective
+            - core_mechanic
+            - controls
+            - player_identity
+            - player_entity
+            - hazard_entity
+            - collectible_entity
+            - signature_mechanic
+            - progression_style
+            - visual_tone
+            - arena_detail
+            - win_condition
+            - lose_condition
+            - score_target
+            - survival_seconds
+            - generation_notes
+
+            Rules:
+            - keep the design within a small 2D browser game scope
+            - ask yourself what the actual minute-to-minute gameplay should be
+            - use the user's answers as authoritative when they exist
+            - make the plan specific to the prompt instead of defaulting to a generic arcade layout
+            - keep controls as an object with up, down, left, right string fields when keyboard or mouse movement is relevant
+            - set score_target or survival_seconds to null if not applicable
+            - generation_notes must be a short array of strings
+            """
+        ).strip()
+        user_prompt = json.dumps(
+            {
+                "original_prompt": prompt,
+                "user_answers": answers,
+                "framework": framework,
+                "planning_context": planning_context,
+            },
+            indent=2,
+        )
+        payload = self._chat_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            invalid_json_message="LLM returned invalid JSON for structured plan generation.",
+        )
+        payload["generation_notes"] = list(payload.get("generation_notes", []))
+        return payload
 
     def create_clarification_questions(self, prompt: str, max_questions: int = 7) -> dict[str, Any]:
         system_prompt = textwrap.dedent(
@@ -218,7 +331,10 @@ class OpenAICompatibleLLMClient:
             - if framework is phaser, load Phaser 3.80.1 from jsDelivr in index_html
             - support the controls, win condition, lose condition, and score/timer model from the spec
 
-            This is not a generic reskin task. Use the original prompt and structured spec to make the game feel specific.
+            This is not a generic reskin task.
+            The planning context was produced upstream by a separate design model.
+            Treat that design brief as authoritative and implement gameplay logic that matches it.
+            Do not mirror a fixed house template unless the plan itself calls for something simple.
             """
         ).strip()
         user_prompt = json.dumps(
@@ -404,6 +520,27 @@ def load_dotenv(dotenv_path: str | os.PathLike[str] = ".env") -> None:
         os.environ.setdefault(key, value)
 
 
+def resolve_role_llm_clients() -> ResolvedLLMClients:
+    load_dotenv()
+    if os.getenv("AIGB_PROVIDER", "").strip().lower() == "mock":
+        mock_client = MockLLMClient()
+        return ResolvedLLMClients(
+            clarification_client=mock_client,
+            planning_client=mock_client,
+            code_generation_client=mock_client,
+            notes=["Using deterministic mock LLM client for clarification, planning, and code generation."],
+        )
+
+    design_client, design_note = _resolve_design_client()
+    code_generation_client, code_generation_note = _resolve_code_generation_client()
+    return ResolvedLLMClients(
+        clarification_client=design_client,
+        planning_client=design_client,
+        code_generation_client=code_generation_client,
+        notes=[design_note, code_generation_note],
+    )
+
+
 def resolve_llm_client() -> tuple[LLMClient, str]:
     load_dotenv()
     provider = os.getenv("AIGB_PROVIDER", "provider_chain").strip().lower() or "provider_chain"
@@ -501,3 +638,106 @@ def _resolve_provider_chain() -> tuple[LLMClient, str]:
         )
 
     return MultiLLMClient(clients), "Using provider chain: " + " -> ".join(labels) + "."
+
+
+def _resolve_design_client() -> tuple[LLMClient, str]:
+    provider = os.getenv("AIGB_DESIGN_PROVIDER", "groq").strip().lower() or "groq"
+    metadata = _client_metadata()
+    if provider == "mock":
+        return MockLLMClient(), "Clarification and planning model: mock fallback."
+    if provider == "groq":
+        api_key = os.getenv("AIGB_GROQ_API_KEY")
+        model = os.getenv("AIGB_DESIGN_MODEL") or os.getenv("AIGB_GROQ_PRIMARY_MODEL", "openai/gpt-oss-120b")
+        base_url = os.getenv("AIGB_DESIGN_BASE_URL") or os.getenv(
+            "AIGB_GROQ_BASE_URL",
+            "https://api.groq.com/openai/v1/chat/completions",
+        )
+        if not api_key:
+            raise RuntimeError("AIGB_GROQ_API_KEY is required for clarification and planning.")
+        return (
+            OpenAICompatibleLLMClient(
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                referer=metadata["referer"],
+                title=metadata["title"],
+            ),
+            f"Clarification and planning model: Groq {model}.",
+        )
+    if provider == "openai_compatible":
+        api_key = os.getenv("AIGB_DESIGN_API_KEY") or os.getenv("AIGB_API_KEY")
+        model = os.getenv("AIGB_DESIGN_MODEL") or os.getenv("AIGB_MODEL", "openai/gpt-oss-120b")
+        base_url = os.getenv("AIGB_DESIGN_BASE_URL") or os.getenv(
+            "AIGB_BASE_URL",
+            "https://api.groq.com/openai/v1/chat/completions",
+        )
+        if not api_key:
+            raise RuntimeError("AIGB_DESIGN_API_KEY or AIGB_API_KEY is required for design openai_compatible mode.")
+        return (
+            OpenAICompatibleLLMClient(
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                referer=metadata["referer"],
+                title=metadata["title"],
+            ),
+            f"Clarification and planning model: {model} via {base_url}.",
+        )
+    raise RuntimeError(
+        f"Unsupported AIGB_DESIGN_PROVIDER '{provider}'. Use 'groq', 'openai_compatible', or 'mock'."
+    )
+
+
+def _resolve_code_generation_client() -> tuple[LLMClient, str]:
+    provider = os.getenv("AIGB_CODEGEN_PROVIDER", "openrouter").strip().lower() or "openrouter"
+    metadata = _client_metadata()
+    if provider == "mock":
+        return MockLLMClient(), "Code generation model: mock fallback."
+    if provider == "openrouter":
+        api_key = os.getenv("AIGB_OPENROUTER_API_KEY") or os.getenv("AIGB_API_KEY")
+        model = os.getenv("AIGB_CODEGEN_MODEL") or os.getenv("AIGB_OPENROUTER_MODEL", "qwen/qwen3-coder:free")
+        base_url = os.getenv("AIGB_CODEGEN_BASE_URL") or os.getenv("AIGB_OPENROUTER_BASE_URL") or os.getenv(
+            "AIGB_BASE_URL",
+            "https://openrouter.ai/api/v1/chat/completions",
+        )
+        if not api_key:
+            raise RuntimeError("AIGB_OPENROUTER_API_KEY or AIGB_API_KEY is required for code generation.")
+        return (
+            OpenAICompatibleLLMClient(
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                referer=metadata["referer"],
+                title=metadata["title"],
+            ),
+            f"Code generation model: OpenRouter {model}.",
+        )
+    if provider == "openai_compatible":
+        api_key = os.getenv("AIGB_CODEGEN_API_KEY") or os.getenv("AIGB_API_KEY")
+        model = os.getenv("AIGB_CODEGEN_MODEL") or os.getenv("AIGB_MODEL", "qwen/qwen3-coder:free")
+        base_url = os.getenv("AIGB_CODEGEN_BASE_URL") or os.getenv(
+            "AIGB_BASE_URL",
+            "https://openrouter.ai/api/v1/chat/completions",
+        )
+        if not api_key:
+            raise RuntimeError("AIGB_CODEGEN_API_KEY or AIGB_API_KEY is required for code-generation openai_compatible mode.")
+        return (
+            OpenAICompatibleLLMClient(
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                referer=metadata["referer"],
+                title=metadata["title"],
+            ),
+            f"Code generation model: {model} via {base_url}.",
+        )
+    raise RuntimeError(
+        f"Unsupported AIGB_CODEGEN_PROVIDER '{provider}'. Use 'openrouter', 'openai_compatible', or 'mock'."
+    )
+
+
+def _client_metadata() -> dict[str, str | None]:
+    return {
+        "referer": os.getenv("AIGB_SITE_URL"),
+        "title": os.getenv("AIGB_APP_NAME", "Agentic Game Builder MVP"),
+    }

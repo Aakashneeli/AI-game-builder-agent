@@ -8,7 +8,7 @@ from typing import Any
 from .clarification import ClarificationManager
 from .framework_selector import FrameworkSelector
 from .generator import CodeGenerator
-from .llm import LLMRequestError, MockLLMClient, MultiLLMClient, resolve_llm_client
+from .llm import LLMRequestError, MockLLMClient, MultiLLMClient, ResolvedLLMClients, resolve_role_llm_clients
 from .output import OutputManager
 from .planner import Planner
 from .validator import Validator
@@ -32,18 +32,24 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        llm_client, llm_note = resolve_llm_client()
+        llm_clients = resolve_role_llm_clients()
     except RuntimeError as error:
         print(f"LLM configuration issue: {error}")
-        print("Falling back to deterministic mock LLM client.")
-        llm_client = MockLLMClient()
-        llm_note = "Using deterministic mock LLM client."
+        print("Falling back to deterministic mock LLM client for all phases.")
+        mock_client = MockLLMClient()
+        llm_clients = ResolvedLLMClients(
+            clarification_client=mock_client,
+            planning_client=mock_client,
+            code_generation_client=mock_client,
+            notes=["Using deterministic mock LLM client for clarification, planning, and code generation."],
+        )
 
     print("== Agentic Game Builder MVP ==")
-    print(llm_note)
+    for note in llm_clients.notes:
+        print(note)
     print("\n[Phase 1/5] Clarify")
 
-    clarification_manager = ClarificationManager(llm_client=llm_client)
+    clarification_manager = ClarificationManager(llm_client=llm_clients.clarification_client)
     questions = clarification_manager.build_questions(prompt)
     try:
         provided_answers = _load_answers_file(args.answers_file)
@@ -77,7 +83,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Reason: {framework_decision.reason}")
 
     print("\n[Phase 3/5] Plan")
-    spec, plan_messages = build_spec_with_fallback(prompt, answers, framework_decision.framework, llm_client)
+    spec, plan_messages = build_spec_with_fallback(
+        prompt,
+        answers,
+        framework_decision.framework,
+        llm_clients.planning_client,
+    )
     plan_renderer = Planner(llm_client=MockLLMClient())
     for message in plan_messages:
         print(message)
@@ -85,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\n[Phase 4/5] Generate")
     validator = Validator()
-    generator = CodeGenerator(llm_client=llm_client, validator=validator)
+    generator = CodeGenerator(llm_client=llm_clients.code_generation_client, validator=validator)
     artifacts = generator.generate(spec)
     for message in generator.last_messages:
         print(f"- {message}")

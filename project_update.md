@@ -6,6 +6,11 @@ This file tracks the current state of the project, what has been implemented, wh
 
 Most recent product and workflow updates:
 
+- split the live LLM flow into role-specific clients instead of one shared provider path
+- routed clarification and structured planning to Groq `openai/gpt-oss-120b`
+- routed code generation and repair to OpenRouter `qwen/qwen3-coder:free`
+- added an LLM-first structured planning pass so the design model now proposes concrete game logic fields before deterministic normalization fills any gaps
+- kept deterministic fallbacks in place so mock mode, tests, and provider failures still complete the pipeline
 - moved game-code generation toward an LLM-first path so live providers can generate `index.html`, `style.css`, and `game.js` directly from the prompt plus the structured game spec
 - added validation-aware retry for live code generation so one bad bundle can be repaired once before falling back
 - kept the built-in generator as the offline and provider-failure fallback so mock-mode and local tests remain reproducible
@@ -57,8 +62,12 @@ Implemented:
   - generate
   - validate
 - Structured game-spec planning flow
+- role-based multi-LLM routing:
+  - Groq GPT-OSS for clarification and planning
+  - OpenRouter Qwen3-Coder for code generation and repair
 - richer clarification and personalization capture
 - live LLM-first clarification with heuristic fallback
+- live structured planning with deterministic normalization fallback
 - live LLM-first code generation with validation-aware fallback
 - Browser game output generation for:
   - `index.html`

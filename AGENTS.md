@@ -68,12 +68,10 @@ uv pip install -e .
 
 The app auto-loads a local `.env` file on startup.
 
-Current default setup uses a provider chain:
+Current default setup uses role-based LLM routing:
 
 ```bash
-AIGB_PROVIDER=provider_chain
 AIGB_GROQ_PRIMARY_MODEL=openai/gpt-oss-120b
-AIGB_GROQ_FALLBACK_MODEL=qwen/qwen3-32b
 AIGB_GROQ_BASE_URL=https://api.groq.com/openai/v1/chat/completions
 AIGB_OPENROUTER_MODEL=qwen/qwen3-coder:free
 AIGB_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions
@@ -163,13 +161,18 @@ Offline fallback mode:
 export AIGB_PROVIDER=mock
 ```
 
-OpenAI-compatible mode:
+Optional role overrides:
 
 ```bash
-export AIGB_PROVIDER=openai_compatible
-export AIGB_API_KEY=your_key_here
-export AIGB_MODEL=gpt-4.1-mini
-export AIGB_BASE_URL=https://api.openai.com/v1/chat/completions
+export AIGB_DESIGN_PROVIDER=openai_compatible
+export AIGB_DESIGN_API_KEY=your_key_here
+export AIGB_DESIGN_MODEL=openai/gpt-oss-120b
+export AIGB_DESIGN_BASE_URL=https://api.groq.com/openai/v1/chat/completions
+
+export AIGB_CODEGEN_PROVIDER=openai_compatible
+export AIGB_CODEGEN_API_KEY=your_key_here
+export AIGB_CODEGEN_MODEL=qwen/qwen3-coder:free
+export AIGB_CODEGEN_BASE_URL=https://openrouter.ai/api/v1/chat/completions
 ```
 
 ## Build And Verification
@@ -195,7 +198,7 @@ python -m py_compile $(find agentic_game_builder tests -name '*.py')
 Inspect the currently resolved provider config:
 
 ```bash
-python -c "from agentic_game_builder.llm import resolve_llm_client; client, note = resolve_llm_client(); print(type(client).__name__); print(note)"
+python -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(type(clients.clarification_client).__name__); print(type(clients.code_generation_client).__name__); print(*clients.notes, sep='\n')"
 ```
 
 Recommended local smoke test:

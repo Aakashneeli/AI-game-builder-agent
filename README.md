@@ -21,60 +21,53 @@ The implementation is split into small modules:
   - when a live LLM client is available, it can propose structured clarification questions first
   - if that fails or returns unusable data, the repo falls back to local prompt heuristics
 - `agentic_game_builder/framework_selector.py`: explicitly chooses between vanilla JS and Phaser as an agent phase
-- `agentic_game_builder/planner.py`: converts prompt + answers into a bounded but more expressive game spec
-- `agentic_game_builder/generator.py`: asks a live LLM for a full `index.html`, `style.css`, and `game.js` bundle first, then falls back to the built-in generator if live code generation fails validation
+- `agentic_game_builder/planner.py`: uses a design-model planning pass first, then normalizes the result into a bounded game spec with deterministic fallbacks
+- `agentic_game_builder/generator.py`: asks a coding model for a full `index.html`, `style.css`, and `game.js` bundle first, then falls back to the built-in generator if live code generation fails validation
 - `agentic_game_builder/validator.py`: validates generated content and written files
 - `agentic_game_builder/output.py`: manages output directory creation and file writes
-- `agentic_game_builder/llm.py`: provider-agnostic LLM layer with `mock` and `openai_compatible` modes
+- `agentic_game_builder/llm.py`: role-based LLM resolution for design vs code generation, plus mock and OpenAI-compatible adapters
 
 ## LLM Strategy
 
-The architecture is provider-agnostic, but the default runtime now uses a provider chain loaded from `.env`.
+The default runtime is now role-based rather than one shared provider chain.
 
-Default order:
+Default roles:
 
-1. Groq `openai/gpt-oss-120b`
-2. Groq `qwen/qwen3-32b`
-3. OpenRouter fallback
+1. Clarification and planning: Groq `openai/gpt-oss-120b`
+2. Code generation and repair: OpenRouter `qwen/qwen3-coder:free`
 
-If all live providers fail, the CLI still falls back to the deterministic mock client so the generation pipeline can complete.
+This split keeps prompt analysis and design work on the stronger reasoning model, while the coding model focuses on generating the actual browser-game bundle.
 
-The clarification step now uses the same philosophy:
+If either live role fails hard enough, the CLI still falls back to deterministic local behavior so offline tests remain reproducible:
 
-- live providers can generate prompt-specific clarification questions in structured JSON
-- local heuristics still act as a fallback for offline runs, tests, and provider failures
+- clarification falls back to local heuristics
+- planning falls back to deterministic mock copy plus deterministic normalization
+- code generation falls back to the built-in template runtime
 
-The generation step now follows that pattern too:
+The live flow now looks like this:
 
-- live providers can generate the full browser game bundle from the original prompt plus the structured game spec
+- Groq GPT-OSS asks prompt-specific clarification questions
+- Groq GPT-OSS produces a structured game plan
+- OpenRouter Qwen3-Coder generates the final browser game bundle
 - generated bundles are validated and get one repair retry if they miss required runtime hooks
-- offline and failure cases still fall back to the built-in deterministic generator
+- only after that does the repo fall back to the built-in deterministic generator
 
 Supported modes:
 
 - `AIGB_PROVIDER=mock`
   - offline fallback mode
   - no network or API key required
-  - deterministic title/summary generation
-- `AIGB_PROVIDER=provider_chain`
-  - default mode
-  - tries Groq primary model first
-  - then Groq secondary model
-  - then OpenRouter
-- `AIGB_PROVIDER=openai_compatible`
-  - expects an OpenAI-compatible chat completions endpoint
-  - configure with:
-    - `AIGB_API_KEY`
-    - `AIGB_MODEL`
-    - `AIGB_BASE_URL`
+  - deterministic planning copy and built-in template generation
+- live role-based mode
+  - clarification/planning use `AIGB_GROQ_*`
+  - code generation uses `AIGB_OPENROUTER_*`
+  - optional overrides exist via `AIGB_DESIGN_*` and `AIGB_CODEGEN_*`
 
 Example:
 
 ```bash
-export AIGB_PROVIDER=provider_chain
 export AIGB_GROQ_API_KEY=your_groq_key_here
 export AIGB_GROQ_PRIMARY_MODEL=openai/gpt-oss-120b
-export AIGB_GROQ_FALLBACK_MODEL=qwen/qwen3-32b
 export AIGB_GROQ_BASE_URL=https://api.groq.com/openai/v1/chat/completions
 export AIGB_OPENROUTER_API_KEY=your_openrouter_key_here
 export AIGB_OPENROUTER_MODEL=qwen/qwen3-coder:free
