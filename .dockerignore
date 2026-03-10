@@ -2,6 +2,9 @@ __pycache__/
 .git/
 .pytest_cache/
 .mypy_cache/
+.venv/
+.env
+*.pyc
 generated_games/
 dist/
 build/
