@@ -6,7 +6,13 @@ This file tracks the current state of the project, what has been implemented, wh
 
 Most recent product and workflow updates:
 
+- updated `.dockerignore` so local `.venv` and `.env` files are excluded from Docker build context, which fixes Windows Docker Desktop build failures caused by Linux venv symlinks
 - expanded `README.md` so setup, local runs, Docker usage, and verification commands are now documented for Linux/WSL, macOS, Windows CMD, and Windows PowerShell
+- expanded `README.md` further with:
+  - a fuller runbook for operating the agent
+  - a clearer architecture explanation
+  - explicit trade-offs
+  - future-improvement notes that now also call out the current limitations of the free/open-source model stack compared with stronger paid LLMs
 - added a live code-generation fallback chain so OpenRouter `qwen/qwen3-coder:free` now falls back to Groq `moonshotai/kimi-k2-instruct-0905`
 - split the live LLM flow into role-specific clients instead of one shared provider path
 - routed clarification and structured planning to Groq `openai/gpt-oss-120b`
@@ -80,7 +86,9 @@ Implemented:
 - Output folder management
 - Basic validation checks for generated files
 - Docker support
+- Docker build context hardened against local-environment files that should not be copied into the image
 - README documentation
+- cross-platform setup, run, Docker, and verification documentation for Linux/WSL, macOS, Windows CMD, and Windows PowerShell
 - `AGENTS.md` setup and run guide
 - `tasks.md` with a concise phase-based task list
 - Git repository initialization and GitHub push
