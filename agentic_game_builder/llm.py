@@ -689,10 +689,68 @@ def _resolve_design_client() -> tuple[LLMClient, str]:
 
 
 def _resolve_code_generation_client() -> tuple[LLMClient, str]:
-    provider = os.getenv("AIGB_CODEGEN_PROVIDER", "openrouter").strip().lower() or "openrouter"
+    provider = os.getenv("AIGB_CODEGEN_PROVIDER", "chain").strip().lower() or "chain"
     metadata = _client_metadata()
     if provider == "mock":
         return MockLLMClient(), "Code generation model: mock fallback."
+    if provider in {"chain", "multi"}:
+        clients: list[tuple[str, LLMClient]] = []
+        labels: list[str] = []
+
+        openrouter_api_key = os.getenv("AIGB_OPENROUTER_API_KEY") or os.getenv("AIGB_API_KEY")
+        openrouter_model = os.getenv("AIGB_CODEGEN_MODEL") or os.getenv("AIGB_OPENROUTER_MODEL", "qwen/qwen3-coder:free")
+        openrouter_base_url = os.getenv("AIGB_CODEGEN_BASE_URL") or os.getenv("AIGB_OPENROUTER_BASE_URL") or os.getenv(
+            "AIGB_BASE_URL",
+            "https://openrouter.ai/api/v1/chat/completions",
+        )
+
+        groq_api_key = os.getenv("AIGB_GROQ_API_KEY")
+        groq_fallback_model = os.getenv("AIGB_CODEGEN_FALLBACK_MODEL") or os.getenv(
+            "AIGB_GROQ_CODEGEN_FALLBACK_MODEL",
+            "moonshotai/kimi-k2-instruct-0905",
+        )
+        groq_base_url = os.getenv("AIGB_CODEGEN_FALLBACK_BASE_URL") or os.getenv(
+            "AIGB_GROQ_BASE_URL",
+            "https://api.groq.com/openai/v1/chat/completions",
+        )
+
+        if openrouter_api_key:
+            clients.append(
+                (
+                    f"OpenRouter {openrouter_model}",
+                    OpenAICompatibleLLMClient(
+                        api_key=openrouter_api_key,
+                        model=openrouter_model,
+                        base_url=openrouter_base_url,
+                        referer=metadata["referer"],
+                        title=metadata["title"],
+                    ),
+                )
+            )
+            labels.append(f"OpenRouter {openrouter_model}")
+
+        if groq_api_key:
+            clients.append(
+                (
+                    f"Groq {groq_fallback_model}",
+                    OpenAICompatibleLLMClient(
+                        api_key=groq_api_key,
+                        model=groq_fallback_model,
+                        base_url=groq_base_url,
+                        referer=metadata["referer"],
+                        title=metadata["title"],
+                    ),
+                )
+            )
+            labels.append(f"Groq {groq_fallback_model}")
+
+        if not clients:
+            raise RuntimeError(
+                "Code generation requires AIGB_OPENROUTER_API_KEY and/or AIGB_GROQ_API_KEY in chain mode."
+            )
+        if len(clients) == 1:
+            return clients[0][1], f"Code generation model: {labels[0]}."
+        return MultiLLMClient(clients), "Code generation model chain: " + " -> ".join(labels) + "."
     if provider == "openrouter":
         api_key = os.getenv("AIGB_OPENROUTER_API_KEY") or os.getenv("AIGB_API_KEY")
         model = os.getenv("AIGB_CODEGEN_MODEL") or os.getenv("AIGB_OPENROUTER_MODEL", "qwen/qwen3-coder:free")
@@ -732,7 +790,7 @@ def _resolve_code_generation_client() -> tuple[LLMClient, str]:
             f"Code generation model: {model} via {base_url}.",
         )
     raise RuntimeError(
-        f"Unsupported AIGB_CODEGEN_PROVIDER '{provider}'. Use 'openrouter', 'openai_compatible', or 'mock'."
+        f"Unsupported AIGB_CODEGEN_PROVIDER '{provider}'. Use 'chain', 'openrouter', 'openai_compatible', or 'mock'."
     )
 
 

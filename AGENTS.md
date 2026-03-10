@@ -72,6 +72,7 @@ Current default setup uses role-based LLM routing:
 
 ```bash
 AIGB_GROQ_PRIMARY_MODEL=openai/gpt-oss-120b
+AIGB_GROQ_CODEGEN_FALLBACK_MODEL=moonshotai/kimi-k2-instruct-0905
 AIGB_GROQ_BASE_URL=https://api.groq.com/openai/v1/chat/completions
 AIGB_OPENROUTER_MODEL=qwen/qwen3-coder:free
 AIGB_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions

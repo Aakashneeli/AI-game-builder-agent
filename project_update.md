@@ -6,6 +6,7 @@ This file tracks the current state of the project, what has been implemented, wh
 
 Most recent product and workflow updates:
 
+- added a live code-generation fallback chain so OpenRouter `qwen/qwen3-coder:free` now falls back to Groq `moonshotai/kimi-k2-instruct-0905`
 - split the live LLM flow into role-specific clients instead of one shared provider path
 - routed clarification and structured planning to Groq `openai/gpt-oss-120b`
 - routed code generation and repair to OpenRouter `qwen/qwen3-coder:free`
@@ -64,7 +65,8 @@ Implemented:
 - Structured game-spec planning flow
 - role-based multi-LLM routing:
   - Groq GPT-OSS for clarification and planning
-  - OpenRouter Qwen3-Coder for code generation and repair
+  - OpenRouter Qwen3-Coder for primary code generation and repair
+  - Groq Kimi K2 as the code-generation fallback
 - richer clarification and personalization capture
 - live LLM-first clarification with heuristic fallback
 - live structured planning with deterministic normalization fallback

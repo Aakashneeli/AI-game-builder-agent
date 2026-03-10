@@ -112,30 +112,52 @@ class FrameworkSelectorTests(unittest.TestCase):
 
 
 class LLMResolutionTests(unittest.TestCase):
-    def test_role_resolution_uses_groq_for_design_and_openrouter_for_codegen(self) -> None:
-        with patch.dict(
-            os.environ,
-            {
-                "AIGB_GROQ_API_KEY": "groq-test-key",
-                "AIGB_GROQ_PRIMARY_MODEL": "openai/gpt-oss-120b",
-                "AIGB_OPENROUTER_API_KEY": "openrouter-test-key",
-                "AIGB_OPENROUTER_MODEL": "qwen/qwen3-coder:free",
-            },
-            clear=True,
-        ):
-            clients = resolve_role_llm_clients()
+    def test_role_resolution_uses_groq_for_design_and_codegen_chain(self) -> None:
+        with patch("agentic_game_builder.llm.load_dotenv", return_value=None):
+            with patch.dict(
+                os.environ,
+                {
+                    "AIGB_GROQ_API_KEY": "groq-test-key",
+                    "AIGB_GROQ_PRIMARY_MODEL": "openai/gpt-oss-120b",
+                    "AIGB_OPENROUTER_API_KEY": "openrouter-test-key",
+                    "AIGB_OPENROUTER_MODEL": "qwen/qwen3-coder:free",
+                },
+                clear=True,
+            ):
+                clients = resolve_role_llm_clients()
 
         self.assertIs(clients.clarification_client, clients.planning_client)
         self.assertIsInstance(clients.clarification_client, OpenAICompatibleLLMClient)
-        self.assertIsInstance(clients.code_generation_client, OpenAICompatibleLLMClient)
+        self.assertIsInstance(clients.code_generation_client, MultiLLMClient)
         self.assertEqual(clients.clarification_client.model, "openai/gpt-oss-120b")
-        self.assertEqual(clients.code_generation_client.model, "qwen/qwen3-coder:free")
+        self.assertEqual(len(clients.code_generation_client.clients), 2)
+        self.assertEqual(clients.code_generation_client.clients[0][0], "OpenRouter qwen/qwen3-coder:free")
+        self.assertEqual(clients.code_generation_client.clients[0][1].model, "qwen/qwen3-coder:free")
+        self.assertEqual(clients.code_generation_client.clients[1][0], "Groq moonshotai/kimi-k2-instruct-0905")
+        self.assertEqual(clients.code_generation_client.clients[1][1].model, "moonshotai/kimi-k2-instruct-0905")
         self.assertTrue(any("Groq openai/gpt-oss-120b" in note for note in clients.notes))
-        self.assertTrue(any("OpenRouter qwen/qwen3-coder:free" in note for note in clients.notes))
+        self.assertTrue(any("OpenRouter qwen/qwen3-coder:free -> Groq moonshotai/kimi-k2-instruct-0905" in note for note in clients.notes))
+
+    def test_role_resolution_uses_groq_kimi_for_codegen_when_openrouter_is_missing(self) -> None:
+        with patch("agentic_game_builder.llm.load_dotenv", return_value=None):
+            with patch.dict(
+                os.environ,
+                {
+                    "AIGB_GROQ_API_KEY": "groq-test-key",
+                    "AIGB_GROQ_PRIMARY_MODEL": "openai/gpt-oss-120b",
+                },
+                clear=True,
+            ):
+                clients = resolve_role_llm_clients()
+
+        self.assertIsInstance(clients.code_generation_client, OpenAICompatibleLLMClient)
+        self.assertEqual(clients.code_generation_client.model, "moonshotai/kimi-k2-instruct-0905")
+        self.assertTrue(any("Groq moonshotai/kimi-k2-instruct-0905" in note for note in clients.notes))
 
     def test_role_resolution_uses_mock_clients_when_mock_provider_is_forced(self) -> None:
-        with patch.dict(os.environ, {"AIGB_PROVIDER": "mock"}, clear=True):
-            clients = resolve_role_llm_clients()
+        with patch("agentic_game_builder.llm.load_dotenv", return_value=None):
+            with patch.dict(os.environ, {"AIGB_PROVIDER": "mock"}, clear=True):
+                clients = resolve_role_llm_clients()
 
         self.assertIsInstance(clients.clarification_client, MockLLMClient)
         self.assertIsInstance(clients.planning_client, MockLLMClient)

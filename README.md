@@ -34,7 +34,8 @@ The default runtime is now role-based rather than one shared provider chain.
 Default roles:
 
 1. Clarification and planning: Groq `openai/gpt-oss-120b`
-2. Code generation and repair: OpenRouter `qwen/qwen3-coder:free`
+2. Code generation primary: OpenRouter `qwen/qwen3-coder:free`
+3. Code generation fallback: Groq `moonshotai/kimi-k2-instruct-0905`
 
 This split keeps prompt analysis and design work on the stronger reasoning model, while the coding model focuses on generating the actual browser-game bundle.
 
@@ -48,7 +49,8 @@ The live flow now looks like this:
 
 - Groq GPT-OSS asks prompt-specific clarification questions
 - Groq GPT-OSS produces a structured game plan
-- OpenRouter Qwen3-Coder generates the final browser game bundle
+- OpenRouter Qwen3-Coder generates the final browser game bundle first
+- if OpenRouter rate-limits or fails, Groq Kimi K2 is tried for code generation
 - generated bundles are validated and get one repair retry if they miss required runtime hooks
 - only after that does the repo fall back to the built-in deterministic generator
 
@@ -68,6 +70,7 @@ Example:
 ```bash
 export AIGB_GROQ_API_KEY=your_groq_key_here
 export AIGB_GROQ_PRIMARY_MODEL=openai/gpt-oss-120b
+export AIGB_GROQ_CODEGEN_FALLBACK_MODEL=moonshotai/kimi-k2-instruct-0905
 export AIGB_GROQ_BASE_URL=https://api.groq.com/openai/v1/chat/completions
 export AIGB_OPENROUTER_API_KEY=your_openrouter_key_here
 export AIGB_OPENROUTER_MODEL=qwen/qwen3-coder:free
