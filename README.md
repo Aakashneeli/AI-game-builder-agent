@@ -30,19 +30,9 @@ By default, generated bundles are written under `generated_games/`, unless `--ou
 
 ## How To Run The Agent
 
-### 1. Create and activate the virtual environment
+### Shared setup for all operating systems
 
-```bash
-uv venv .venv
-source .venv/bin/activate
-uv pip install -e .
-```
-
-If you do not want to activate the environment, you can use `.venv/bin/python` directly in every command below.
-
-### 2. Configure local environment variables
-
-The app auto-loads a local `.env` file from the repo root.
+Before you run any OS-specific commands below, create a local `.env` file in the repo root.
 
 Typical live setup:
 
@@ -59,51 +49,15 @@ AIGB_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions
 
 Keep `.env` local only. It is gitignored and should not be committed.
 
-### 3. Verify which models the agent will use
+The app auto-loads `.env` automatically at startup, so you usually do not need to export variables manually in your shell.
 
-```bash
-.venv/bin/python -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
-```
-
-Expected default behavior:
+Expected default live behavior:
 
 - clarification and planning use Groq `openai/gpt-oss-120b`
 - code generation tries OpenRouter `qwen/qwen3-coder:free`
 - if OpenRouter fails or rate-limits, code generation falls back to Groq `moonshotai/kimi-k2-instruct-0905`
 
-### 4. Run the agent interactively
-
-```bash
-.venv/bin/python -m agentic_game_builder
-```
-
-The CLI will:
-
-- ask for the initial vague game idea if `--prompt` is not supplied
-- ask clarification questions if the prompt still has important ambiguity
-- print the structured plan before generation
-- write the generated game bundle to disk
-
-### 5. Run with a direct prompt
-
-```bash
-.venv/bin/python -m agentic_game_builder \
-  --prompt "Make a cyber heist game about stealing data from a neon vault."
-```
-
-### 6. Run with a fixed output directory
-
-```bash
-.venv/bin/python -m agentic_game_builder \
-  --prompt "Create a jungle relic collection game." \
-  --output-dir ./generated_games/jungle-demo
-```
-
-### 7. Run with a scripted answers file
-
-This is useful when you want repeatable runs or want to avoid interactive input.
-
-Example `answers.json`:
+Example `answers.json` for scripted runs:
 
 ```json
 {
@@ -119,7 +73,75 @@ Example `answers.json`:
 }
 ```
 
-Run:
+### Linux / WSL
+
+#### 1. Open the repo
+
+```bash
+cd /path/to/AI-Game-builder
+```
+
+Example in WSL:
+
+```bash
+cd /mnt/c/Users/Admin/Documents/AI-Game-builder
+```
+
+#### 2. Create the virtual environment
+
+```bash
+uv venv .venv
+```
+
+#### 3. Activate the environment
+
+```bash
+source .venv/bin/activate
+```
+
+#### 4. Install the project into the environment
+
+```bash
+uv pip install -e .
+```
+
+If you do not want to activate the environment, use `.venv/bin/python` directly in all commands below.
+
+#### 5. Verify the resolved model routing
+
+```bash
+.venv/bin/python -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
+```
+
+#### 6. Run interactively
+
+```bash
+.venv/bin/python -m agentic_game_builder
+```
+
+The CLI will:
+
+- ask for the initial game idea if `--prompt` is not provided
+- ask clarification questions when the prompt is still ambiguous
+- print the structured plan before generation
+- generate and validate the game bundle
+
+#### 7. Run with a direct prompt
+
+```bash
+.venv/bin/python -m agentic_game_builder \
+  --prompt "Make a cyber heist game about stealing data from a neon vault."
+```
+
+#### 8. Run with a fixed output directory
+
+```bash
+.venv/bin/python -m agentic_game_builder \
+  --prompt "Create a jungle relic collection game." \
+  --output-dir ./generated_games/jungle-demo
+```
+
+#### 9. Run with an answers file
 
 ```bash
 .venv/bin/python -m agentic_game_builder \
@@ -128,9 +150,7 @@ Run:
   --output-dir ./generated_games/heist-scripted
 ```
 
-### 8. Run in offline mock mode
-
-Mock mode is useful for local testing when you do not want to spend live tokens or deal with provider availability.
+#### 10. Run in offline mock mode
 
 ```bash
 AIGB_PROVIDER=mock .venv/bin/python -m agentic_game_builder \
@@ -144,14 +164,265 @@ In mock mode:
 - planning still produces deterministic plan copy
 - code generation falls back to the built-in template runtime
 
-### 9. Manually test the generated game
+#### 11. Open the generated game
+
+```bash
+xdg-open generated_games/mock-smoke/index.html
+```
+
+### macOS
+
+#### 1. Open the repo
+
+```bash
+cd /path/to/AI-Game-builder
+```
+
+#### 2. Create the virtual environment
+
+```bash
+uv venv .venv
+```
+
+#### 3. Activate the environment
+
+```bash
+source .venv/bin/activate
+```
+
+#### 4. Install the project into the environment
+
+```bash
+uv pip install -e .
+```
+
+If your shell does not resolve `python` cleanly after activation, use `.venv/bin/python` directly.
+
+#### 5. Verify the resolved model routing
+
+```bash
+.venv/bin/python -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
+```
+
+#### 6. Run interactively
+
+```bash
+.venv/bin/python -m agentic_game_builder
+```
+
+#### 7. Run with a direct prompt
+
+```bash
+.venv/bin/python -m agentic_game_builder \
+  --prompt "Make a cyber heist game about stealing data from a neon vault."
+```
+
+#### 8. Run with a fixed output directory
+
+```bash
+.venv/bin/python -m agentic_game_builder \
+  --prompt "Create a jungle relic collection game." \
+  --output-dir ./generated_games/jungle-demo
+```
+
+#### 9. Run with an answers file
+
+```bash
+.venv/bin/python -m agentic_game_builder \
+  --prompt "Make a cyber heist game about stealing data." \
+  --answers-file ./answers.json \
+  --output-dir ./generated_games/heist-scripted
+```
+
+#### 10. Run in offline mock mode
+
+```bash
+AIGB_PROVIDER=mock .venv/bin/python -m agentic_game_builder \
+  --prompt "Make a traffic dodging game where the player crosses busy lanes." \
+  --output-dir ./generated_games/mock-smoke
+```
+
+#### 11. Open the generated game
+
+```bash
+open generated_games/mock-smoke/index.html
+```
+
+### Windows Command Prompt
+
+#### 1. Open the repo
+
+```bat
+cd /d C:\Users\Admin\Documents\AI-Game-builder
+```
+
+#### 2. Create the virtual environment
+
+```bat
+uv venv .venv
+```
+
+#### 3. Activate the environment
+
+```bat
+call .venv\Scripts\activate
+```
+
+#### 4. Install the project into the environment
+
+```bat
+uv pip install -e .
+```
+
+If you do not want to activate the environment, use `.venv\Scripts\python.exe` directly.
+
+#### 5. Verify the resolved model routing
+
+```bat
+.venv\Scripts\python.exe -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
+```
+
+#### 6. Run interactively
+
+```bat
+.venv\Scripts\python.exe -m agentic_game_builder
+```
+
+#### 7. Run with a direct prompt
+
+```bat
+.venv\Scripts\python.exe -m agentic_game_builder ^
+  --prompt "Make a cyber heist game about stealing data from a neon vault."
+```
+
+#### 8. Run with a fixed output directory
+
+```bat
+.venv\Scripts\python.exe -m agentic_game_builder ^
+  --prompt "Create a jungle relic collection game." ^
+  --output-dir .\generated_games\jungle-demo
+```
+
+#### 9. Run with an answers file
+
+```bat
+.venv\Scripts\python.exe -m agentic_game_builder ^
+  --prompt "Make a cyber heist game about stealing data." ^
+  --answers-file .\answers.json ^
+  --output-dir .\generated_games\heist-scripted
+```
+
+#### 10. Run in offline mock mode
+
+```bat
+set AIGB_PROVIDER=mock
+.venv\Scripts\python.exe -m agentic_game_builder ^
+  --prompt "Make a traffic dodging game where the player crosses busy lanes." ^
+  --output-dir .\generated_games\mock-smoke
+set AIGB_PROVIDER=
+```
+
+#### 11. Open the generated game
+
+```bat
+start generated_games\mock-smoke\index.html
+```
+
+### Windows PowerShell
+
+#### 1. Open the repo
+
+```powershell
+Set-Location "C:\Users\Admin\Documents\AI-Game-builder"
+```
+
+#### 2. Create the virtual environment
+
+```powershell
+uv venv .venv
+```
+
+#### 3. Activate the environment
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks the activation script in the current session, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+#### 4. Install the project into the environment
+
+```powershell
+uv pip install -e .
+```
+
+If you prefer not to activate the environment, use `.\.venv\Scripts\python.exe` directly.
+
+#### 5. Verify the resolved model routing
+
+```powershell
+.\.venv\Scripts\python.exe -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
+```
+
+#### 6. Run interactively
+
+```powershell
+.\.venv\Scripts\python.exe -m agentic_game_builder
+```
+
+#### 7. Run with a direct prompt
+
+```powershell
+.\.venv\Scripts\python.exe -m agentic_game_builder `
+  --prompt "Make a cyber heist game about stealing data from a neon vault."
+```
+
+#### 8. Run with a fixed output directory
+
+```powershell
+.\.venv\Scripts\python.exe -m agentic_game_builder `
+  --prompt "Create a jungle relic collection game." `
+  --output-dir .\generated_games\jungle-demo
+```
+
+#### 9. Run with an answers file
+
+```powershell
+.\.venv\Scripts\python.exe -m agentic_game_builder `
+  --prompt "Make a cyber heist game about stealing data." `
+  --answers-file .\answers.json `
+  --output-dir .\generated_games\heist-scripted
+```
+
+#### 10. Run in offline mock mode
+
+```powershell
+$env:AIGB_PROVIDER = "mock"
+.\.venv\Scripts\python.exe -m agentic_game_builder `
+  --prompt "Make a traffic dodging game where the player crosses busy lanes." `
+  --output-dir .\generated_games\mock-smoke
+Remove-Item Env:\AIGB_PROVIDER
+```
+
+#### 11. Open the generated game
+
+```powershell
+Start-Process .\generated_games\mock-smoke\index.html
+```
+
+### Manual test checklist for any operating system
 
 After a successful run:
 
 1. open the generated output directory
 2. open `index.html` in a browser
 3. verify movement, win/lose conditions, score or timer behavior, and restart support
-4. compare the game against the prompt and your clarification answers
+4. compare the generated game against the original prompt and clarification answers
 
 Good manual test prompts:
 
@@ -295,15 +566,24 @@ Validation is intentionally lightweight. It is there to catch obvious broken bun
 
 ## Docker Build And Run Instructions
 
-### Build the Docker image
+### Shared Docker notes
+
+- build the image from the repo root
+- rebuild the image after code changes
+- make sure Docker Desktop or your local Docker engine is actually running
+- mount `generated_games/` into the container so outputs are preserved outside the container
+
+### Build the Docker image on any operating system
 
 ```bash
 docker build -t agentic-game-builder .
 ```
 
-### Run interactively
+The command is the same on Linux, macOS, Windows Command Prompt, and Windows PowerShell. The difference comes when mounting volumes in `docker run`.
 
-This mounts your local `generated_games/` folder into the container so generated bundles are preserved on your machine.
+### Linux / WSL Docker commands
+
+#### Interactive run
 
 ```bash
 docker run --rm -it \
@@ -312,7 +592,7 @@ docker run --rm -it \
   --output-dir /app/generated_games/demo
 ```
 
-### Run with a prompt
+#### Prompt-driven run
 
 ```bash
 docker run --rm -it \
@@ -322,9 +602,7 @@ docker run --rm -it \
   --output-dir /app/generated_games/zombie-demo
 ```
 
-### Run in mock mode inside Docker
-
-This is the safest way to test the full CLI flow in a container without depending on live provider access.
+#### Mock-mode Docker run
 
 ```bash
 docker run --rm -it \
@@ -335,23 +613,151 @@ docker run --rm -it \
   --output-dir /app/generated_games/mock-demo
 ```
 
-### Run with live API keys inside Docker
-
-If you want live clarification, planning, and code generation from the container, pass the required environment variables:
+#### Live Docker run using `.env`
 
 ```bash
 docker run --rm -it \
-  --env AIGB_GROQ_API_KEY=your_groq_key_here \
-  --env AIGB_OPENROUTER_API_KEY=your_openrouter_key_here \
+  --env-file .env \
   -v "$(pwd)/generated_games:/app/generated_games" \
   agentic-game-builder \
   --prompt "Make a cyber heist game about stealing data from a neon vault." \
   --output-dir /app/generated_games/live-demo
 ```
 
-If Docker is unavailable in WSL, either enable Docker Desktop WSL integration or run the local Python flow instead.
+### macOS Docker commands
+
+#### Interactive run
+
+```bash
+docker run --rm -it \
+  -v "$(pwd)/generated_games:/app/generated_games" \
+  agentic-game-builder \
+  --output-dir /app/generated_games/demo
+```
+
+#### Prompt-driven run
+
+```bash
+docker run --rm -it \
+  -v "$(pwd)/generated_games:/app/generated_games" \
+  agentic-game-builder \
+  --prompt "Make me a top-down zombie survival game." \
+  --output-dir /app/generated_games/zombie-demo
+```
+
+#### Mock-mode Docker run
+
+```bash
+docker run --rm -it \
+  --env AIGB_PROVIDER=mock \
+  -v "$(pwd)/generated_games:/app/generated_games" \
+  agentic-game-builder \
+  --prompt "Make me a simple space survival game." \
+  --output-dir /app/generated_games/mock-demo
+```
+
+#### Live Docker run using `.env`
+
+```bash
+docker run --rm -it \
+  --env-file .env \
+  -v "$(pwd)/generated_games:/app/generated_games" \
+  agentic-game-builder \
+  --prompt "Make a cyber heist game about stealing data from a neon vault." \
+  --output-dir /app/generated_games/live-demo
+```
+
+### Windows Command Prompt Docker commands
+
+#### Interactive run
+
+```bat
+docker run --rm -it ^
+  -v "%cd%\generated_games:/app/generated_games" ^
+  agentic-game-builder ^
+  --output-dir /app/generated_games/demo
+```
+
+#### Prompt-driven run
+
+```bat
+docker run --rm -it ^
+  -v "%cd%\generated_games:/app/generated_games" ^
+  agentic-game-builder ^
+  --prompt "Make me a top-down zombie survival game." ^
+  --output-dir /app/generated_games/zombie-demo
+```
+
+#### Mock-mode Docker run
+
+```bat
+docker run --rm -it ^
+  --env AIGB_PROVIDER=mock ^
+  -v "%cd%\generated_games:/app/generated_games" ^
+  agentic-game-builder ^
+  --prompt "Make me a simple space survival game." ^
+  --output-dir /app/generated_games/mock-demo
+```
+
+#### Live Docker run using `.env`
+
+```bat
+docker run --rm -it ^
+  --env-file .env ^
+  -v "%cd%\generated_games:/app/generated_games" ^
+  agentic-game-builder ^
+  --prompt "Make a cyber heist game about stealing data from a neon vault." ^
+  --output-dir /app/generated_games/live-demo
+```
+
+### Windows PowerShell Docker commands
+
+#### Interactive run
+
+```powershell
+docker run --rm -it `
+  -v "${PWD}\generated_games:/app/generated_games" `
+  agentic-game-builder `
+  --output-dir /app/generated_games/demo
+```
+
+#### Prompt-driven run
+
+```powershell
+docker run --rm -it `
+  -v "${PWD}\generated_games:/app/generated_games" `
+  agentic-game-builder `
+  --prompt "Make me a top-down zombie survival game." `
+  --output-dir /app/generated_games/zombie-demo
+```
+
+#### Mock-mode Docker run
+
+```powershell
+docker run --rm -it `
+  --env AIGB_PROVIDER=mock `
+  -v "${PWD}\generated_games:/app/generated_games" `
+  agentic-game-builder `
+  --prompt "Make me a simple space survival game." `
+  --output-dir /app/generated_games/mock-demo
+```
+
+#### Live Docker run using `.env`
+
+```powershell
+docker run --rm -it `
+  --env-file .env `
+  -v "${PWD}\generated_games:/app/generated_games" `
+  agentic-game-builder `
+  --prompt "Make a cyber heist game about stealing data from a neon vault." `
+  --output-dir /app/generated_games/live-demo
+```
+
+If Docker is unavailable in WSL, enable Docker Desktop WSL integration or run the local Python flow instead.
 
 ## Testing And Verification
+
+### Linux / WSL
 
 Run the full test suite:
 
@@ -369,6 +775,66 @@ Inspect the resolved live model setup:
 
 ```bash
 .venv/bin/python -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
+```
+
+### macOS
+
+Run the full test suite:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Run a syntax check:
+
+```bash
+.venv/bin/python -m py_compile $(find agentic_game_builder tests -name '*.py')
+```
+
+Inspect the resolved live model setup:
+
+```bash
+.venv/bin/python -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
+```
+
+### Windows Command Prompt
+
+Run the full test suite:
+
+```bat
+.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Run a syntax check:
+
+```bat
+.venv\Scripts\python.exe -m py_compile agentic_game_builder\__init__.py agentic_game_builder\__main__.py agentic_game_builder\analysis.py agentic_game_builder\clarification.py agentic_game_builder\cli.py agentic_game_builder\framework_selector.py agentic_game_builder\generator.py agentic_game_builder\llm.py agentic_game_builder\models.py agentic_game_builder\output.py agentic_game_builder\planner.py agentic_game_builder\validator.py tests\test_pipeline.py
+```
+
+Inspect the resolved live model setup:
+
+```bat
+.venv\Scripts\python.exe -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
+```
+
+### Windows PowerShell
+
+Run the full test suite:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Run a syntax check:
+
+```powershell
+.\.venv\Scripts\python.exe -m py_compile agentic_game_builder\__init__.py agentic_game_builder\__main__.py agentic_game_builder\analysis.py agentic_game_builder\clarification.py agentic_game_builder\cli.py agentic_game_builder\framework_selector.py agentic_game_builder\generator.py agentic_game_builder\llm.py agentic_game_builder\models.py agentic_game_builder\output.py agentic_game_builder\planner.py agentic_game_builder\validator.py tests\test_pipeline.py
+```
+
+Inspect the resolved live model setup:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
 ```
 
 ## Trade-offs Made

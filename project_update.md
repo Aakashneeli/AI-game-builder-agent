@@ -6,6 +6,7 @@ This file tracks the current state of the project, what has been implemented, wh
 
 Most recent product and workflow updates:
 
+- expanded `README.md` so setup, local runs, Docker usage, and verification commands are now documented for Linux/WSL, macOS, Windows CMD, and Windows PowerShell
 - added a live code-generation fallback chain so OpenRouter `qwen/qwen3-coder:free` now falls back to Groq `moonshotai/kimi-k2-instruct-0905`
 - split the live LLM flow into role-specific clients instead of one shared provider path
 - routed clarification and structured planning to Groq `openai/gpt-oss-120b`
