@@ -1,8 +1,8 @@
 # Agentic Game Builder MVP
 
-`Agentic Game Builder MVP` is a CLI-first project that takes an ambiguous browser game idea, asks targeted clarification questions, prints a structured implementation plan, and generates a small playable `index.html`, `style.css`, and `game.js` game bundle.
+`Agentic Game Builder MVP` is a Python CLI agent that takes a vague browser-game idea, asks clarification questions, builds a structured implementation plan, generates a playable browser game bundle, and validates the output.
 
-The repo intentionally keeps the workflow explicit:
+The workflow is intentionally explicit:
 
 1. Clarify
 2. Select Framework
@@ -10,100 +10,100 @@ The repo intentionally keeps the workflow explicit:
 4. Generate
 5. Validate
 
-The generated games are constrained to small 2D browser games so the output stays understandable and reliable for assignment review, but the clarification and planning flow now tries to preserve more of the original prompt's personality.
+The project is intentionally scoped to small 2D browser games so the output stays inspectable, debuggable, and realistic for assignment-style review.
 
-## Architecture
+## What The Agent Produces
 
-The implementation is split into small modules:
+Each successful run writes a local game bundle containing:
 
-- `agentic_game_builder/cli.py`: CLI entrypoint and phase orchestration
-- `agentic_game_builder/clarification.py`: detects missing implementation details and asks targeted questions about role, signature hook, pacing, tone, and arena details
-  - when a live LLM client is available, it can propose structured clarification questions first
-  - if that fails or returns unusable data, the repo falls back to local prompt heuristics
-- `agentic_game_builder/framework_selector.py`: explicitly chooses between vanilla JS and Phaser as an agent phase
-- `agentic_game_builder/planner.py`: uses a design-model planning pass first, then normalizes the result into a bounded game spec with deterministic fallbacks
-- `agentic_game_builder/generator.py`: asks a coding model for a full `index.html`, `style.css`, and `game.js` bundle first, then falls back to the built-in generator if live code generation fails validation
-- `agentic_game_builder/validator.py`: validates generated content and written files
-- `agentic_game_builder/output.py`: manages output directory creation and file writes
-- `agentic_game_builder/llm.py`: role-based LLM resolution for design vs code generation, plus mock and OpenAI-compatible adapters
+- `index.html`
+- `style.css`
+- `game.js`
 
-## LLM Strategy
+By default, generated bundles are written under `generated_games/`, unless `--output-dir` is provided.
 
-The default runtime is now role-based rather than one shared provider chain.
+## Prerequisites
 
-Default roles:
+- Python `3.11+`
+- `uv`
+- Docker if you want to test the containerized workflow
 
-1. Clarification and planning: Groq `openai/gpt-oss-120b`
-2. Code generation primary: OpenRouter `qwen/qwen3-coder:free`
-3. Code generation fallback: Groq `moonshotai/kimi-k2-instruct-0905`
+## How To Run The Agent
 
-This split keeps prompt analysis and design work on the stronger reasoning model, while the coding model focuses on generating the actual browser-game bundle.
-
-If either live role fails hard enough, the CLI still falls back to deterministic local behavior so offline tests remain reproducible:
-
-- clarification falls back to local heuristics
-- planning falls back to deterministic mock copy plus deterministic normalization
-- code generation falls back to the built-in template runtime
-
-The live flow now looks like this:
-
-- Groq GPT-OSS asks prompt-specific clarification questions
-- Groq GPT-OSS produces a structured game plan
-- OpenRouter Qwen3-Coder generates the final browser game bundle first
-- if OpenRouter rate-limits or fails, Groq Kimi K2 is tried for code generation
-- generated bundles are validated and get one repair retry if they miss required runtime hooks
-- only after that does the repo fall back to the built-in deterministic generator
-
-Supported modes:
-
-- `AIGB_PROVIDER=mock`
-  - offline fallback mode
-  - no network or API key required
-  - deterministic planning copy and built-in template generation
-- live role-based mode
-  - clarification/planning use `AIGB_GROQ_*`
-  - code generation uses `AIGB_OPENROUTER_*`
-  - optional overrides exist via `AIGB_DESIGN_*` and `AIGB_CODEGEN_*`
-
-Example:
+### 1. Create and activate the virtual environment
 
 ```bash
-export AIGB_GROQ_API_KEY=your_groq_key_here
-export AIGB_GROQ_PRIMARY_MODEL=openai/gpt-oss-120b
-export AIGB_GROQ_CODEGEN_FALLBACK_MODEL=moonshotai/kimi-k2-instruct-0905
-export AIGB_GROQ_BASE_URL=https://api.groq.com/openai/v1/chat/completions
-export AIGB_OPENROUTER_API_KEY=your_openrouter_key_here
-export AIGB_OPENROUTER_MODEL=qwen/qwen3-coder:free
-export AIGB_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions
+uv venv .venv
+source .venv/bin/activate
+uv pip install -e .
 ```
 
-The app auto-loads `.env` at startup. Keep `.env` out of version control.
+If you do not want to activate the environment, you can use `.venv/bin/python` directly in every command below.
 
-## Local Run
+### 2. Configure local environment variables
 
-No third-party Python packages are required.
+The app auto-loads a local `.env` file from the repo root.
 
-Interactive run:
+Typical live setup:
 
 ```bash
-python3 -m agentic_game_builder
+AIGB_GROQ_API_KEY=your_groq_key_here
+AIGB_GROQ_PRIMARY_MODEL=openai/gpt-oss-120b
+AIGB_GROQ_CODEGEN_FALLBACK_MODEL=moonshotai/kimi-k2-instruct-0905
+AIGB_GROQ_BASE_URL=https://api.groq.com/openai/v1/chat/completions
+
+AIGB_OPENROUTER_API_KEY=your_openrouter_key_here
+AIGB_OPENROUTER_MODEL=qwen/qwen3-coder:free
+AIGB_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions
 ```
 
-Prompt-driven run:
+Keep `.env` local only. It is gitignored and should not be committed.
+
+### 3. Verify which models the agent will use
 
 ```bash
-python3 -m agentic_game_builder --prompt "Make me a simple space survival game."
+.venv/bin/python -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
 ```
 
-Write to a specific output directory:
+Expected default behavior:
+
+- clarification and planning use Groq `openai/gpt-oss-120b`
+- code generation tries OpenRouter `qwen/qwen3-coder:free`
+- if OpenRouter fails or rate-limits, code generation falls back to Groq `moonshotai/kimi-k2-instruct-0905`
+
+### 4. Run the agent interactively
 
 ```bash
-python3 -m agentic_game_builder \
+.venv/bin/python -m agentic_game_builder
+```
+
+The CLI will:
+
+- ask for the initial vague game idea if `--prompt` is not supplied
+- ask clarification questions if the prompt still has important ambiguity
+- print the structured plan before generation
+- write the generated game bundle to disk
+
+### 5. Run with a direct prompt
+
+```bash
+.venv/bin/python -m agentic_game_builder \
+  --prompt "Make a cyber heist game about stealing data from a neon vault."
+```
+
+### 6. Run with a fixed output directory
+
+```bash
+.venv/bin/python -m agentic_game_builder \
   --prompt "Create a jungle relic collection game." \
   --output-dir ./generated_games/jungle-demo
 ```
 
-Use a JSON answers file for scripted demos:
+### 7. Run with a scripted answers file
+
+This is useful when you want repeatable runs or want to avoid interactive input.
+
+Example `answers.json`:
 
 ```json
 {
@@ -119,21 +119,191 @@ Use a JSON answers file for scripted demos:
 }
 ```
 
+Run:
+
 ```bash
-python3 -m agentic_game_builder \
-  --prompt "Make me a simple space survival game." \
-  --answers-file ./answers.json
+.venv/bin/python -m agentic_game_builder \
+  --prompt "Make a cyber heist game about stealing data." \
+  --answers-file ./answers.json \
+  --output-dir ./generated_games/heist-scripted
 ```
 
-## Docker
+### 8. Run in offline mock mode
 
-Build the image:
+Mock mode is useful for local testing when you do not want to spend live tokens or deal with provider availability.
+
+```bash
+AIGB_PROVIDER=mock .venv/bin/python -m agentic_game_builder \
+  --prompt "Make a traffic dodging game where the player crosses busy lanes." \
+  --output-dir ./generated_games/mock-smoke
+```
+
+In mock mode:
+
+- clarification falls back to local heuristics
+- planning still produces deterministic plan copy
+- code generation falls back to the built-in template runtime
+
+### 9. Manually test the generated game
+
+After a successful run:
+
+1. open the generated output directory
+2. open `index.html` in a browser
+3. verify movement, win/lose conditions, score or timer behavior, and restart support
+4. compare the game against the prompt and your clarification answers
+
+Good manual test prompts:
+
+- `Make a cyber heist game about stealing data from a neon vault.`
+- `Make a traffic dodging game where a courier crosses busy lanes at night.`
+- `Make a side-view jungle runner where an explorer jumps over traps and grabs relics.`
+
+## Agent Architecture
+
+### High-level flow
+
+The agent is structured as a pipeline rather than one giant prompt:
+
+1. The user provides a vague idea.
+2. The clarification phase identifies missing implementation details.
+3. The framework selector chooses `vanilla_js` or `phaser`.
+4. The planning phase turns the prompt and answers into a structured game spec.
+5. The generator produces `index.html`, `style.css`, and `game.js`.
+6. The validator checks the generated artifacts before and after writing them.
+
+### Multi-LLM architecture
+
+The repo now uses role-based model routing instead of a single shared LLM path.
+
+Current default model responsibilities:
+
+1. Clarification and planning model:
+   Groq `openai/gpt-oss-120b`
+2. Code generation primary:
+   OpenRouter `qwen/qwen3-coder:free`
+3. Code generation fallback:
+   Groq `moonshotai/kimi-k2-instruct-0905`
+
+The design reason for this split is simple:
+
+- clarification and planning benefit more from a stronger reasoning-oriented model
+- code generation benefits from a coding-focused model
+- OpenRouter free models can rate-limit, so a live fallback is needed for codegen
+
+### Phase-by-phase architecture
+
+#### Clarify
+
+`agentic_game_builder/clarification.py`
+
+Responsibilities:
+
+- inspect the prompt
+- detect missing gameplay-shaping details
+- ask targeted questions about objective, perspective, controls, player role, signature mechanic, pacing, tone, and arena
+
+Current behavior:
+
+- try live LLM-generated clarification questions first
+- filter those questions against allowed keys and prompt facts already present
+- if the live response fails or is unusable, fall back to local prompt heuristics
+
+#### Select Framework
+
+`agentic_game_builder/framework_selector.py`
+
+Responsibilities:
+
+- explicitly choose between `vanilla_js` and `phaser`
+- use simple prompt and answer cues such as `side-view`, `platformer`, `jump`, and physics-heavy language
+
+This phase exists to keep the runtime decision visible and inspectable instead of burying it inside generation.
+
+#### Plan
+
+`agentic_game_builder/planner.py`
+
+Responsibilities:
+
+- combine prompt signals, clarification answers, and framework choice
+- ask the design model for a structured game plan
+- normalize the result into a bounded `GameSpec`
+- fill gaps deterministically if the model omits fields
+
+The planner is the bridge between vague human input and implementation-ready game structure.
+
+The resulting spec carries:
+
+- theme
+- title
+- concept summary
+- objective
+- perspective
+- entities
+- controls
+- signature mechanic
+- progression and tone
+- win/lose conditions
+- score or survival target
+- runtime tuning values
+
+#### Generate
+
+`agentic_game_builder/generator.py`
+
+Responsibilities:
+
+- ask the coding model for a complete browser-game bundle
+- validate the returned files immediately
+- perform one repair retry if validation fails
+- fall back to the built-in deterministic generator only if live generation still fails
+
+Current live generation order:
+
+1. OpenRouter `qwen/qwen3-coder:free`
+2. Groq `moonshotai/kimi-k2-instruct-0905`
+3. built-in template fallback
+
+This is the part of the system most directly responsible for whether the output feels like the requested game or just a generic reskin.
+
+#### Validate
+
+`agentic_game_builder/validator.py`
+
+Responsibilities:
+
+- ensure required files exist
+- ensure `index.html` references `style.css` and `game.js`
+- ensure `game.js` contains either a vanilla loop or a Phaser bootstrap
+- ensure restart support exists
+
+Validation is intentionally lightweight. It is there to catch obvious broken bundles, not to prove gameplay quality.
+
+### Important modules
+
+- `agentic_game_builder/cli.py`: top-level orchestration
+- `agentic_game_builder/analysis.py`: prompt heuristics and signal extraction
+- `agentic_game_builder/clarification.py`: clarification question generation and fallback logic
+- `agentic_game_builder/framework_selector.py`: framework routing
+- `agentic_game_builder/planner.py`: structured spec building
+- `agentic_game_builder/generator.py`: live codegen plus deterministic fallback
+- `agentic_game_builder/llm.py`: role-based model resolution and HTTP clients
+- `agentic_game_builder/output.py`: output directory and file writing
+- `agentic_game_builder/validator.py`: generated artifact validation
+- `tests/test_pipeline.py`: unit and end-to-end-ish pipeline coverage
+
+## Docker Build And Run Instructions
+
+### Build the Docker image
 
 ```bash
 docker build -t agentic-game-builder .
 ```
 
-Run interactively and write output into a mounted local folder:
+### Run interactively
+
+This mounts your local `generated_games/` folder into the container so generated bundles are preserved on your machine.
 
 ```bash
 docker run --rm -it \
@@ -142,7 +312,7 @@ docker run --rm -it \
   --output-dir /app/generated_games/demo
 ```
 
-Run with a prompt argument:
+### Run with a prompt
 
 ```bash
 docker run --rm -it \
@@ -152,77 +322,95 @@ docker run --rm -it \
   --output-dir /app/generated_games/zombie-demo
 ```
 
-## Personalization
+### Run in mock mode inside Docker
 
-The clarification step is no longer limited to only theme, controls, and lose condition. For prompts that need more shape, the CLI can now ask about:
-
-- who or what the player controls
-- the main playable verb
-- the game's signature twist or ability
-- how challenge should ramp up
-- the tone or mood
-- the specific arena or location
-
-Those answers now flow into the plan and runtime. They affect things like:
-
-- player identity and HUD copy
-- arena description and visual tone
-- ability hooks such as dash, shield, blink, magnet pull, or double jump
-- pressure curves such as steady pacing, ramps, waves, or finale spikes
-- hazard patterns that feel less like one shared template
-
-## Example Flow
-
-Input prompt:
-
-```text
-Make a cyber heist game about stealing data.
-```
-
-Typical clarification:
-
-- What should the player mainly do moment to moment?
-- Who or what should the player control?
-- What single twist should make this version feel like yours?
-- How should the challenge build over time?
-- What mood should the game lean into?
-
-Typical generated output:
-
-- `index.html`
-- `style.css`
-- `game.js`
-
-The result is a local browser game with player movement, hazards, win/lose logic, restart support, and more prompt-specific flavor in the generated rules, pacing, HUD copy, and mechanics. The framework decision is made as part of the agent workflow.
-
-## Validation
-
-The validator checks:
-
-- all required files exist
-- HTML references `style.css` and `game.js`
-- `game.js` includes either a vanilla render loop or a Phaser bootstrap
-- restart capability is present
-
-## Testing
-
-Run the test suite with:
+This is the safest way to test the full CLI flow in a container without depending on live provider access.
 
 ```bash
-python3 -m unittest discover -s tests -v
+docker run --rm -it \
+  --env AIGB_PROVIDER=mock \
+  -v "$(pwd)/generated_games:/app/generated_games" \
+  agentic-game-builder \
+  --prompt "Make me a simple space survival game." \
+  --output-dir /app/generated_games/mock-demo
 ```
 
-## Trade-offs
+### Run with live API keys inside Docker
 
-- The generator is constrained to small 2D canvas games rather than broad game genres.
-- Reliability comes from a bounded game spec instead of a large freeform generation surface.
-- The mock provider keeps the repo reproducible offline, but a real provider can be plugged in through the LLM abstraction.
-- The output uses placeholder visuals and simple geometry instead of custom assets.
+If you want live clarification, planning, and code generation from the container, pass the required environment variables:
 
-## Future Improvements
+```bash
+docker run --rm -it \
+  --env AIGB_GROQ_API_KEY=your_groq_key_here \
+  --env AIGB_OPENROUTER_API_KEY=your_openrouter_key_here \
+  -v "$(pwd)/generated_games:/app/generated_games" \
+  agentic-game-builder \
+  --prompt "Make a cyber heist game about stealing data from a neon vault." \
+  --output-dir /app/generated_games/live-demo
+```
 
-- richer game-spec normalization
-- browser-based preview or playtest automation
-- stronger generated JavaScript validation
-- additional LLM providers
-- iterative repair when generated output fails checks
+If Docker is unavailable in WSL, either enable Docker Desktop WSL integration or run the local Python flow instead.
+
+## Testing And Verification
+
+Run the full test suite:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Run a syntax check:
+
+```bash
+.venv/bin/python -m py_compile $(find agentic_game_builder tests -name '*.py')
+```
+
+Inspect the resolved live model setup:
+
+```bash
+.venv/bin/python -c "from agentic_game_builder.llm import resolve_role_llm_clients; clients = resolve_role_llm_clients(); print(*clients.notes, sep='\n')"
+```
+
+## Trade-offs Made
+
+- The project is limited to small 2D browser games.
+  This keeps the generation target bounded and makes the results easier to inspect, but it also means many bigger game ideas must be simplified.
+
+- The planner still normalizes outputs into a bounded `GameSpec`.
+  This reduces chaos and breakage, but it can still compress truly novel prompts into a smaller design space than a fully freeform agent would.
+
+- Built-in deterministic fallbacks still exist.
+  That helps reliability and offline testing, but if all live providers fail the final game can still fall back to a more template-like runtime.
+
+- Validation is intentionally shallow.
+  The validator catches obvious broken bundles, but it does not prove that the generated gameplay is genuinely good or faithful to the prompt.
+
+- Generated visuals use simple shapes and CSS rather than custom assets.
+  That keeps the repo self-contained and easy to run, but the visual quality ceiling is lower than an asset-backed game pipeline.
+
+- The system optimizes for operational reliability over maximal creativity.
+  This is the right trade-off for an MVP, but it means some prompts are still simplified harder than an ideal future version would allow.
+
+## Improvements I Would Make With More Time
+
+- Strengthen the planning schema so the design model can express richer rules, enemy behaviors, level structure, and state transitions without collapsing into a handful of runtime patterns.
+
+- Reduce the final dependency on deterministic runtime templates by introducing smaller reusable engine primitives instead of one large fallback runtime.
+
+- Add stronger validation for generated JavaScript.
+  For example: static checks for required entities, control wiring, state transitions, and win/lose logic consistency.
+
+- Add browser-based automated playtest checks.
+  Even lightweight smoke tests in a headless browser would catch more real gameplay failures than string-based validation alone.
+
+- Add richer repair loops for code generation.
+  Right now the live codegen path gets one repair pass; a future version could support multi-step structured repair with targeted diagnostics.
+
+- Improve observability.
+  The CLI could log which model handled which phase, which fallback was used, what validation failed, and why a repair or fallback happened.
+
+- Support more output surfaces.
+  For example: exportable play reports, thumbnails, gameplay metadata, or a lightweight web UI for browsing generated games.
+
+- Add more nuanced framework routing.
+  The current framework selector is intentionally simple; a stronger planner could justify Phaser or vanilla decisions from the game plan itself.
