@@ -414,3 +414,6 @@ Inspect the resolved live model setup:
 
 - Add more nuanced framework routing.
   The current framework selector is intentionally simple; a stronger planner could justify Phaser or vanilla decisions from the game plan itself.
+
+- Use stronger paid LLMs for planning and code generation.
+  The current open-source and free-model stack is good enough for an MVP, but it is still noticeably behind stronger paid models when the task is end-to-end browser-game implementation. With better commercial models, the project would likely produce more reliable game logic, fewer broken edge cases, and much higher-quality final games.
